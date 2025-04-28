@@ -1,0 +1,367 @@
+---
+title: "methylKit_PCA"
+author: "Shruti Singh Kakan"
+date: "2025-04-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library("methylKit")
+# Annotation package
+library("genomation")
+library("GenomicRanges")
+library("BiocParallel")
+library("parallel")
+library(scales)
+library(gplots)
+library(RColorBrewer)
+library(vegan)
+library(dichromat)
+library(stats)
+```
+
+```{text}
+Methylation extraction was run again for FC neurons and NeuN+ samples to have more depth per sample.
+```
+
+
+```{r}
+# Define the list containing the bismark coverage files.
+
+setwd("/home/groups/ximenac/01_DMV_Rods/data/DMRichRun/")
+
+file.list <- list(
+   "SRR950173_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR950174_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR11806587_bismark_bt2_pe.deduplicated.CpG_report.txt.gz", #E8.5 M
+   "SRR9016926_bismark_bt2_pe.deduplicated.CpG_report.txt.gz", #E8.5 F
+   "SRR8568641_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR8568642_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR8568643_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR8568644_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   #"SRR8568645_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR8568646_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR8568647_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR8568648_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   #"SRR8568649_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR4254699_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR4254700_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR4254702_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR32137689_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   #"SRR32137691_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR32137693_bismark_bt2_pe.deduplicated.CpG_report.txt.gz",
+   "SRR9833662_bismark_bt2_pe.deduplicated.CpG_report.txt.gz", #Rod3m
+   "SRR9833663_bismark_bt2_pe.deduplicated.CpG_report.txt.gz", #Rod3m
+   "SRR9833664_bismark_bt2_pe.deduplicated.CpG_report.txt.gz", #Rod3m
+   #"SRR2722846_bismark_bt2.deduplicated.CpG_report.txt.gz",
+   #"SRR2722847_bismark_bt2.deduplicated.CpG_report.txt.gz",
+   "SRR2722850_bismark_bt2.deduplicated.CpG_report.txt.gz",
+   "SRR2722851_bismark_bt2.deduplicated.CpG_report.txt.gz",
+   "SRR921767_bismark_bt2.deduplicated.CpG_report.txt.gz", #FC1w_1
+   "SRR921770_bismark_bt2.deduplicated.CpG_report.txt.gz", #FC1w_2
+   "SRR921694_bismark_bt2.deduplicated.CpG_report.txt.gz", #FC2w_1
+   "SRR921695_bismark_bt2.deduplicated.CpG_report.txt.gz", #FC2w_2
+   "SRR921809_bismark_bt2.deduplicated.CpG_report.txt.gz",
+   "SRR921815_bismark_bt2.deduplicated.CpG_report.txt.gz"
+   #"SRR921810_bismark_bt2.deduplicated.CpG_report.txt.gz",
+   #"SRR921816_bismark_bt2.deduplicated.CpG_report.txt.gz"
+   )
+#28 samples
+
+# read the listed files into a methylRawList object making sure the other
+# parameters are filled in correctly.
+myobj <- methRead(file.list,
+           sample.id=list( 
+                          "HSC_1", "HSC_2",
+                          "E8_1", "E8_2",
+                          "RPC E11_1", "RPC E11_2", "RPC E11_3", "RPC E11_4",
+                          "RPC E12_1", "RPC E12_2", "RPC E12_3", 
+                          "Ret E14", "Ret E17", "Ret P3",
+                          "Ret P21 1", "Ret P21 2",
+                          "Rod3m_1","Rod3m_2", "Rod3m_3",
+                          #"Rod2m_1","Rod2m_2",
+                          "Cone2m_1","Cone2m_2",
+                          "FC_1w 1", "FC_1w 2", "FC_2w 1", "FC_2w 2",
+                          "Neu_N+ 1", "Neu_N+ 2"),
+           pipeline = "bismarkCytosineReport",
+           context="CpG",
+           assembly="mm10",
+           treatment=c(0,0,
+                       0,0,
+                       0,0,0,0,
+                       0,0,0,
+                       0,0,0,
+                       1,1,
+                       1,1,1,0,0,
+                       0,0,0,0,0,0),
+           mincov = 5)
+
+# check number of samples
+myobj
+
+# What type of data is stored here?
+head(myobj[[1]])
+```
+
+
+
+```{r}
+# Get a histogram of the methylation percentage per sample
+# Here for sample 1
+getMethylationStats(myobj[[1]], plot=TRUE, both.strands=FALSE)
+getMethylationStats(myobj[[12]], plot=TRUE, both.strands=FALSE)
+getMethylationStats(myobj[[18]], plot=TRUE, both.strands=FALSE)
+
+#If you get an error saying "Error in plot.new() : figure margins too large", try to reset the graphics by tunning dev.off()
+
+dev.off()
+tiff('Methylation_Histogram.tiff', units="in", width=12.5, height=12, res=300, compression = 'lzw')
+plot.new()
+par(mfrow = c(6, 5))
+for (i in 1:length(myobj)) {
+  getMethylationStats(myobj[[i]], plot=TRUE, both.strands=FALSE)
+}
+dev.off()
+```
+
+#### Obtaining Average and Median Coverages
+```{r}
+# Get a histogram of the read coverage per sample
+for (i in 1:length(myobj)) {
+  getCoverageStats(myobj[[i]], plot=TRUE, both.strands=FALSE)
+}
+# Get percentile data by setting plot=FALSE
+getCoverageStats(myobj[[1]], plot=FALSE, both.strands=FALSE)
+
+for (i in 1:length(myobj)) {
+  c <- NA
+  print(i)
+  c <- mean(myobj[[i]]$coverage)
+  print("Average Coverage ")
+  print(c)
+  print("Median Coverage")
+  d <- median(myobj[[i]]$coverage)
+  print(d)
+}
+
+c <- (myobj[[1]]$coverage)
+
+
+
+plot.new()
+for (i in 1:length(myobj)) {
+  c <- (myobj[[i]]$coverage)
+  plot((density(c+1)), type="l", log='x', ylim = c(1,5000))
+}
+
+```
+
+
+### Obtaining mean and median coverage per chromosome
+```{r}
+
+df_mean <- matrix(ncol=22, nrow=28)
+df_median <- matrix(ncol=22, nrow=28)
+chrm <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "X", "Y", "MT")
+colnames(df_mean) <- paste0("chr", chrm)
+colnames(df_median) <- paste0("chr", chrm)
+for (i in 1:length(myobj)) {
+  print(paste0("Sample", i))
+  #rownames(df_mean)[i] <- paste0("Sample", i)
+  for (j in 1:length(chrm[1:22])) {
+    data <- myobj[[i]][which(myobj[[i]]$chr == chrm[j]),]
+    #print(paste0("chr ", j))
+    c <- mean(data$coverage)
+    #print("Average Coverage ")
+    #print(c)
+    df_mean[i,j] <- c
+    #
+    print("Median Coverage ")
+    d <- median(data$coverage)
+    df_median[i,j] <- d
+  }
+}
+
+rownames(df_mean) <- c("HSC_1", "HSC_2",
+                          "E8_1", "E8_2",
+                          "RPC E11_1", "RPC E11_2", "RPC E11_3", "RPC E11_4",
+                          "RPC E12_1", "RPC E12_2", "RPC E12_3", 
+                          "Ret E14", "Ret E17", "Ret P3",
+                          "Ret P21 1", "Ret P21 2",
+                          "Rod3m_1","Rod3m_2", "Rod3m_3",
+                          #"Rod2m_1","Rod2m_2",
+                          "Cone2m_1","Cone2m_2",
+                          "FC_1w 1", "FC_1w 2", "FC_2w 1", "FC_2w 2",
+                          "Neu_N+ 1", "Neu_N+ 2")
+rownames(df_median) <- rownames(df_mean)
+pheatmap::pheatmap(df_mean[,1:20])
+pheatmap::pheatmap(df_median[,1:20])
+
+rc <- rainbow(nrow(df_mean[,1:20]), start = 0, end = .3)
+cc <- rainbow(ncol(df_mean[,1:21]), start = 0, end = .3)
+#heatmap(df_mean[,1:22],col = cm.colors(256),
+#        RowSideColors = rc, ColSideColors = cc, scale = "column")
+# Plot a corresponding legend 
+#legend(x="right", legend=c("min", "med", "max"),fill=cm.colors(256)[c(255, 125, 1)])
+
+heatmap(df_median[,1:21],col = cm.colors(256),
+        RowSideColors = rc, ColSideColors = cc, scale=c("row"))
+# Plot a corresponding legend 
+legend(x="right", legend=c("min", "med", "max"),fill=cm.colors(256)[c(1,125,  255)])
+```
+
+
+```{r}
+myobj.filt <- filterByCoverage(myobj,
+                      lo.count=5,
+                      lo.perc=NULL,
+                      hi.count=NULL,
+                      hi.perc=99.9)
+```
+
+### Normalization
+```{r}
+myobj.filt.norm <- normalizeCoverage(myobj.filt, method = "mean")
+```
+
+### Merge Data | To run this chunk request 128 GB of RAM
+```{r}
+#Setting destrand=TRUE (the default is FALSE) will merge reads on both strands of a CpG dinucleotide. This provides better coverage, but only advised when looking at CpG methylation (for CpH methylation this will cause wrong results in subsequent analyses). In addition, setting destrand=TRUE will only work when operating on base-pair resolution, otherwise setting this option TRUE will have no effect. 
+
+
+meth <- unite(myobj.filt.norm, destrand=TRUE, mc.cores=6, chunk.size = 1e+06, min.per.group=3L)
+meth
+
+saveRDS(meth, file="MethylSeq_united_121125.rds")
+```
+
+
+```{r}
+# get percent methylation matrix
+pm=percMethylation(meth)
+
+# calculate standard deviation of CpGs
+sds=matrixStats::rowSds(pm)
+
+# Visualize the distribution of the per-CpG standard deviation
+# to determine a suitable cutoff
+hist(sds, breaks=27)
+
+# keep only CpG with standard deviations larger than 2%
+meth <- meth[sds > 2]
+
+# This leaves us with this number of CpG sites
+nrow(meth)
+```
+
+
+```{r}
+getCorrelation(meth,plot=TRUE)
+```
+
+
+```{r}
+tiff("final_outs/Ward_Hierarchical_Cluster_29MilCpGs.tiff", units = "in", height = 6, width = 7, res = 300)
+clusterSamples(meth, dist="correlation", method="ward", plot=TRUE)
+dev.off()
+
+tiff("final_outs/PCA_1.6MilCpGs.tiff", units = "in", height = 6, width = 6.5, res = 300)
+PCASamples(meth, screeplot=F, transpose=TRUE)
+dev.off()
+```
+
+####PCA plot
+```{r}
+#Create a color palette for the barplots.
+plotColors <- (RColorBrewer::brewer.pal(12, "Paired"))
+alldataPCA <- methylKit::PCASamples(meth, obj.return = TRUE)
+summary(methylKit::PCASamples(meth, obj.return = TRUE))
+
+color = c(rep(plotColors[1], times = 2), #HSC
+               rep(plotColors[2], times = 2), #E8.5
+               rep(plotColors[3], times = 7), #E11.5, #E12.5
+               rep(plotColors[4:6], each = 1), #E14.5, E17.5, P3
+               rep(plotColors[7], times = 2), #P21
+               rep(plotColors[8], times = 5), #Rods, #Cones
+               rep(plotColors[9], times = 4), #FC
+               rep(plotColors[10], times = 2) #Neu N+
+               )
+points <- c(15,15, #HSC
+               0, 0,  #E8.5
+               2, 2, 2, 2, 6, 6, 6, #E11.5, E12.5
+               5, 7, 12, #E14.5, E17.5, P3
+               10, 10, 1, 1, 1, #P21, #Rod
+               16, 16, #Cones
+               9, 9, 18, 18, 21, 21)
+
+pdf("final_outs/PCA_18MilCpGs.pdf", width = 9.5, height = 7)
+plot.new
+par(mar = c(6, 6, 1, 1)) #Specify inner and outer margins
+fig.allDataPCA <- ordiplot(methylKit::PCASamples(meth, obj.return = TRUE), choices = c(1, 2), type = "none", display = "sites", cex = 0.75, xlab = "", ylab = "", xaxt = "n", yaxt = "n") #Use ordiplot to create base biplot. Do not add any points
+points(fig.allDataPCA, "sites", 
+       col = color, 
+       pch = points,
+       lwd=2,
+       cex = 3)#Add each sample, color and points
+axis(side =  1, labels = TRUE, col = "grey80", cex.axis = 1.7) #Add x-axis
+mtext(side = 1, text = "PC 1 (19.7%)", line = 3, cex = 1.5) #Add x-axis label
+
+axis(side =  2, labels = TRUE, col = "grey80", cex.axis = 1.7) #Add y-axis
+mtext(side = 2, text = "PC 2 (14.8%)", line = 3, cex = 1.5) #Add y-axis label
+
+legend("bottomright", 
+       pch = c(15,0,2,6,5,7,12,10,1,16,9,18,21), 
+       legend = c("HSC","E8.5",  "RPC E11.5", "RPC E12.5", "Ret E14", "Ret E17","Ret P3", "P21", "Rod 3m", "Cones 2m", "FC 1w", "FC 2w", "Neu N+"), 
+       col = c(plotColors[1:3], plotColors[3:8], plotColors[8:9], plotColors[9:10]), 
+       cex = 1.25, bty = "n") #Add a legend with information about ambient and elevated samples
+dev.off()
+
+```
+
+
+```{r}
+PCASamples(meth,screeplot=FALSE, adj.lim=c(0.0004,0.1),
+           scale=TRUE,center=TRUE,comp=c(1,2),transpose=TRUE,sd.filter=TRUE,
+           sd.threshold=0.5,filterByQuantile=TRUE,obj.return=FALSE)
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+# Test for differential methylation... This might take a few minutes.
+myDiff <- calculateDiffMeth(meth,
+                            overdispersion = "MN",
+                            adjust="BH")
+myDiff
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
