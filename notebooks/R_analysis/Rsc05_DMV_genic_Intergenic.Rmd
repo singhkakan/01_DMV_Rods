@@ -1,0 +1,1554 @@
+---
+title: "DMV_genes"
+author: "Shruti Singh Kakan"
+date: "2025-04-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading Required libraries
+```{r Loading Required libraries, message=FALSE, warning=FALSE, paged.print=FALSE}
+#.libPaths('/home/users/singhkak/R/x86_64-pc-linux-gnu-library/4.2')
+#remotes::install_version("fastmap", version="1.2.0")
+#library(GenomicScores)
+#BiocManager::install("methylKit")
+library(methylKit)
+library(matrixStats)
+library(dplyr)
+library(Biostrings)
+library(bsseq)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(rtracklayer)
+library(GenomicRanges)
+library(BiocParallel)
+library(parallel)
+library(pheatmap)
+library(RColorBrewer)
+library(GenomicRanges)
+library(IRanges)
+library(org.Mm.eg.db)
+library(pheatmap)
+library(TxDb.Mmusculus.UCSC.mm39.refGene)
+
+mcp <- MulticoreParam(workers=6, progressbar = TRUE,log = TRUE)
+```
+
+###### Identifying DMV genes ######
+
+# Function to make GRanges From DataFrame
+```{r}
+makeGRangesFromDataFrame <- function(df, keep.extra.columns = TRUE) {
+  # Input validation
+  required_cols <- c("seqnames", "start", "end")
+  if (!all(required_cols %in% colnames(df))) {
+    stop("Data frame must contain columns: seqnames, start, and end")
+  }
+  
+  # Ensure start and end are numeric
+  df$start <- as.numeric(df$start)
+  df$end <- as.numeric(df$end)
+  
+  # Create the GRanges object
+  gr <- GRanges(
+    seqnames = df$seqnames,
+    ranges = IRanges(start = df$start, end = df$end)
+  )
+  
+  # Add metadata columns if keep.extra.columns is TRUE
+  if (keep.extra.columns) {
+    extra_cols <- setdiff(colnames(df), c(required_cols))
+    if (length(extra_cols) > 0) {
+      mcols(gr) <- df[, extra_cols, drop = FALSE]
+    }
+  }
+  
+  return(gr)
+}
+```
+
+# Function to Read DMV files
+```{r}
+# Read DMV files
+read_dmv_file <- function(file_path) {
+  bed <- read.delim(file_path, 
+                    header = TRUE, 
+                    comment.char = "#", 
+                    stringsAsFactors = FALSE)
+  colnames(bed) <- c("seqnames", "start", "end", "CpG_count")
+  return(bed)
+}
+```
+
+# Function to Standardize chromosome names 
+```{r}
+standardize_seqlevels <- function(gr) {
+    current_levels <- seqlevels(gr)
+    new_levels <- sub("^chr", "", current_levels)
+    new_levels[new_levels == "M"] <- "MT"
+    seqlevels(gr) <- new_levels
+    standard_chromosomes <- c(1:19, "X", "Y", "MT")
+    gr <- gr[seqnames(gr) %in% standard_chromosomes]
+    gr <- dropSeqlevels(gr, setdiff(seqlevels(gr), standard_chromosomes), pruning.mode="coarse")
+    return(gr)
+}
+```
+
+# Function to Standardize human chromosome names 
+```{r}
+standardize_seqlevels_hs <- function(gr) {
+    current_levels <- seqlevels(gr)
+    new_levels <- sub("^chr", "", current_levels)
+    new_levels[new_levels == "M"] <- "MT"
+    seqlevels(gr) <- new_levels
+    standard_chromosomes <- c(1:22, "X", "Y", "MT")
+    gr <- gr[seqnames(gr) %in% standard_chromosomes]
+    gr <- dropSeqlevels(gr, setdiff(seqlevels(gr), standard_chromosomes), pruning.mode="coarse")
+    return(gr)
+}
+```
+
+
+# Read in Bed files with DMV info
+```{r}
+base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/"
+cell_type <- c("E8.5", "Ret_E11.5", "Ret_E12.5", "Ret_E14.5", "Ret_E17.5", "Ret_P3", "Ret_P21","Rod3m", "Cones2m","FC_1w", "FC_2w",  "NeuN_pos", "HSC")
+
+#rods2m_bed <- read_dmv_file(paste0(base_path, "Rods2m_DMVs_with_CpG.bed"))
+hsc_bed <- read_dmv_file(paste0(base_path, "HSC_DMVs_with_CpG.bed"))
+e8.5_bed <- read_dmv_file(paste0(base_path, "E8.5_DMVs_with_CpG.bed"))
+RPC_e11.5_bed <- read_dmv_file(paste0(base_path, "RPC_E11.5_DMVs_with_CpG.bed"))
+RPC_e12.5_bed <- read_dmv_file(paste0(base_path, "RPC_E12.5_DMVs_with_CpG.bed"))
+RPC_e14.5_bed <- read_dmv_file(paste0(base_path, "RPC_E14.5_DMVs_with_CpG.bed"))
+RPC_e17.5_bed <- read_dmv_file(paste0(base_path, "RPC_E17.5_DMVs_with_CpG.bed"))
+RPC_p3_bed <- read_dmv_file(paste0(base_path, "RPC_P3_DMVs_with_CpG.bed"))
+Ret_P21 <- read_dmv_file(paste0(base_path, "R_analysis/p21/P21_DMVs_with_CpG.bed"))
+rods3m_bed <- read_dmv_file(paste0(base_path, "R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed"))
+cones2m_bed <- read_dmv_file(paste0(base_path, "R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed"))
+FC_1wk <- read_dmv_file(paste0(base_path, "R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed"))
+FC_2wk <- read_dmv_file(paste0(base_path, "R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed"))
+NeuN_pos <- read_dmv_file(paste0(base_path, "R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed"))
+
+
+
+###### Human DMV ######
+Donor1_Mac <- read_dmv_file(paste0(base_path, "R_analysis/Hs_Retina/Donor1_Macula_DMVs_with_CpG.bed"))
+
+
+
+```
+
+#R21 Grant 
+### Find unique DMVs
+```{bash, engine.opts='-l'}
+#!/bin/bash
+
+cd /home/groups/ximenac/01_DMV_Rods/notebooks/
+ml biology
+ml bedtools
+
+mkdir unique_DMVs
+chmod 755 unique_DMVs/*
+
+###### DMVs unique to Rods #######
+
+cat HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+chmod 755 unique_DMVs/*
+bedtools intersect -a R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/Rod3m_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to Cones ########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+chmod 755 unique_DMVs/*
+
+bedtools intersect -a R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/Cones2m_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to NeuN+ ########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/NeuN+_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to HSC ########
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a HSC_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/HSC_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+
+######## DMVs unique to E8.5 ########
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a E8.5_DMVs_with_CpG.bed  -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/E8.5_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+
+######## DMVs unique to E11.5 ########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a RPC_E11.5_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/RPC_E11.5_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to E12.5 ########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a RPC_E12.5_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/RPC_E12.5_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to E14.5 ########
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a Ret_E14.5_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/Ret_E14.5_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to E17.5 ########
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a Ret_E17.5_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/Ret_E17.5_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to P3 ########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a Ret_P3_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/P3_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to P21 ########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a R_analysis/p21/P21_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/P21_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+
+######## DMVs unique to FC 1wk ########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/FC_1w_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+
+######## DMVs unique to FC 2wk ########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/FC_2w_unique_DMVs.bed
+
+rm unique_DMVs/tmp.bed
+
+######## DMVs unique to Tet KO ########
+
+
+######## DMVs unique to P21 for R21 grant ########
+cat HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed | bedtools sort | bedtools merge > unique_DMVs/tmp.bed
+
+bedtools intersect -a R_analysis/p21/P21_DMVs_with_CpG.bed -b unique_DMVs/tmp.bed -v | sort -k1,1V -k2,2n > unique_DMVs/P21_R21_unique_DMVs.bed
+
+
+```
+
+
+#Shared DMVs
+```{bash, engine.opts='-l'}
+#!/bin/bash
+
+cd /home/groups/ximenac/01_DMV_Rods/notebooks/
+ml biology
+ml bedtools
+
+mkdir shared_DMVs
+
+######## DMVs shared by all cell types #########
+
+cat R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed | sort -k1,1 -k2,2n | bedtools merge -i stdin > shared_DMVs/master.bed
+
+
+bedtools intersect -a shared_DMVs/master.bed -b R_analysis/Rods3m/Rod3m_DMVs_with_CpG.bed \
+HSC_DMVs_with_CpG.bed \
+E8.5_DMVs_with_CpG.bed \
+RPC_E11.5_DMVs_with_CpG.bed \
+RPC_E12.5_DMVs_with_CpG.bed \
+Ret_E14.5_DMVs_with_CpG.bed \
+Ret_E17.5_DMVs_with_CpG.bed \
+Ret_P3_DMVs_with_CpG.bed \
+R_analysis/p21/P21_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_1w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed \
+R_analysis/FC_Neu/NeuN_neg_DMVs_with_CpG.bed \
+R_analysis/Cones2m/Cones2m_DMVs_with_CpG.bed -c | sort -k1,1 -k2,2n > shared_DMVs/master.counts.bed
+
+awk -v NUM_FILES=14 '$4 == NUM_FILES' shared_DMVs/master.counts.bed | sort -k1,1V -k2,2n > shared_DMVs/shared_by_all_14_cell_types.bed
+
+awk -v NUM_FILES=13 '$4 == NUM_FILES' shared_DMVs/master.counts.bed | sort -k1,1V -k2,2n > shared_DMVs/shared_by_13_cell_types.bed
+```
+
+
+# Read in Bed files with unique DMV info
+```{r}
+base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/"
+
+hsc_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/HSC_unique_DMVs.bed"))
+e8.5_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/E8.5_unique_DMVs.bed"))
+Ret_e11.5_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/RPC_E11.5_unique_DMVs.bed"))
+Ret_e12.5_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/RPC_E12.5_unique_DMVs.bed"))
+Ret_e14.5_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/Ret_E14.5_unique_DMVs.bed"))
+Ret_e17.5_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/Ret_E17.5_unique_DMVs.bed"))
+p3_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/P3_unique_DMVs.bed"))
+p21_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/P21_unique_DMVs.bed"))
+#p21_R21_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/P21_R21_unique_DMVs.bed"))
+rod3m_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/Rod3m_unique_DMVs.bed"))
+cones2m_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/Cones2m_unique_DMVs.bed"))
+FC_1wk_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/FC_1w_unique_DMVs.bed"))
+FC_2wk_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/FC_2w_unique_DMVs.bed"))
+NeuN_pos_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/NeuN+_unique_DMVs.bed"))
+```
+
+
+#Read in bed file of mouse genomic regions
+```{r}
+
+setwd("/home/groups/ximenac/01_DMV_Rods/data/01_raw/mouse_genome_no_patches/")
+
+chrm <- paste0("chr", c(1:22, "X", "Y", "MT"))
+Known_genes <- read.delim("GRCm39.geneID.bed", 
+                          header = FALSE,
+                          skip = 1)
+Known_genes <- Known_genes[,c(1:4,6)]
+colnames(Known_genes) <- c("seqnames", "start", "end", "GeneID", "strand")
+#Known_genes <- Known_genes[which(Known_genes$seqnames %in% chrm),]
+
+#Get the Genic file by adding +/- 2Kb the start site to get include the promoter region
+Genic <- Known_genes
+Genic$start <- ifelse(Genic$strand=="+", (Genic$start - 2000), Genic$start)
+Genic$end <- ifelse(Genic$strand=="-", (Genic$end + 2000), Genic$end)
+Genic$Region <- "Genic"
+
+#Read in Intergenic
+intergenic <- read.delim("GRCm39.Intergenic.bed", 
+                          header = FALSE,
+                          skip = 1)
+#intergenic <- intergenic[,c(1:4,6)]
+colnames(intergenic) <- c("seqnames", "start", "end")
+#intergenic <- intergenic[which(intergenic$seqnames %in% chrm),]
+intergenic$Region <- "InterGenic"
+
+### Read in TSS
+TSS <- read.delim("GRCm39.TSS.bed", 
+                          header = FALSE,
+                          skip = 1)
+TSS <- TSS[,c(1:4,6)]
+colnames(TSS) <- c("seqnames", "start", "end", "GeneID", "strand")
+#TSS <- TSS[which(TSS$seqnames %in% chrm),]
+TSS$Region <- "TSS"
+
+### Read in Promoters
+Promoters <- read.delim("GRCm39.promoter_regions.bed", 
+                          header = FALSE,
+                          skip = 1)
+Promoters <- Promoters[,c(1:4,6)]
+colnames(Promoters) <- c("seqnames", "start", "end", "GeneID", "strand")
+#Promoters <- Promoters[which(Promoters$seqnames %in% chrm),]
+Promoters$Region <- "Promoters"
+
+###### Read in Protein coding
+protein_coding <- read.delim("GRCm39.proteinCoding.bed", 
+                          header = FALSE,
+                          skip = 1)
+protein_coding <- protein_coding[,c(1:4,6:7)]
+colnames(protein_coding) <- c("seqnames", "start", "end", "GeneID", "strand", "name")
+#Known_genes <- Known_genes[which(Known_genes$seqnames %in% chrm),]
+#pc <- protein_coding[,c(1:3)]
+protein_coding$Region <- "protein_coding"
+
+##### Read in ncRNA
+ncRNA <- read.delim("GRCm39.ncRNA.bed", 
+                          header = FALSE,
+                          skip = 1)
+ncRNA <- ncRNA[,c(1:4,6)]
+colnames(ncRNA) <- c("seqnames", "start", "end", "Gene", "strand")
+#Known_genes <- Known_genes[which(Known_genes$seqnames %in% chrm),]
+#ncRNA <- ncRNA[,c(1:3)]
+ncRNA$Region <- "ncRNA"
+
+genic_types <- list()
+
+for (i in length(6)) {
+  genic_types[[i]] <- read.delim("GRCm39.ncRNA.bed", 
+                          header = FALSE,
+                          skip = 1)
+ncRNA <- ncRNA[,c(1:4,6)]
+colnames(ncRNA) <- c("seqnames", "start", "end", "Gene", "strand")
+#Known_genes <- Known_genes[which(Known_genes$seqnames %in% chrm),]
+#ncRNA <- ncRNA[,c(1:3)]
+ncRNA$Region <- "ncRNA"
+names(genic_types[[i]]) <- c()
+}
+
+#### Read in ncRNA subtypes
+
+
+```
+
+#Read in Bed files for human genome regions
+```{r}
+## Read in Bed files with genomic ranges for genic and intergenic and other regions
+
+setwd("/home/groups/ximenac/01_DMV_Rods/scripts/NOVOGENE_2025/R_Analysis/")
+
+hs_chrm <- paste0("chr", c(1:22, "X", "Y", "MT"))
+hs_Known_genes <- read.delim("GRCh38.geneID.bed", 
+                          header = FALSE,
+                          skip = 1)
+hs_Known_genes <- hs_Known_genes[,c(1:4,6)]
+colnames(hs_Known_genes) <- c("seqnames", "start", "end", "GeneID", "strand")
+#Known_genes <- Known_genes[which(Known_genes$seqnames %in% chrm),]
+
+#Get the Genic file by adding +/- 2Kb the start site to get include the promoter region
+hs_Genic <- hs_Known_genes
+hs_Genic$start <- ifelse(hs_Genic$strand=="+", (hs_Genic$start - 2000), hs_Genic$start)
+hs_Genic$end <- ifelse(hs_Genic$strand=="-", (hs_Genic$end + 2000), hs_Genic$end)
+hs_Genic$Region <- "Genic"
+
+#Read in Intergenic
+hs_intergenic <- read.delim("Intergenic_GRCh38.bed", 
+                          header = FALSE,
+                          skip = 1)
+#hs_intergenic <- hs_intergenic[,c(1:4,6)]
+colnames(hs_intergenic) <- c("seqnames", "start", "end")
+#hs_intergenic <- hs_intergenic[which(hs_intergenic$seqnames %in% chrm),]
+hs_intergenic$Region <- "InterGenic"
+
+### Read in TSS
+hs_TSS <- read.delim("GRCh38.gene_TSSs.bed", 
+                          header = FALSE,
+                          skip = 1)
+hs_TSS <- hs_TSS[,c(1:4,6)]
+colnames(hs_TSS) <- c("seqnames", "start", "end", "GeneID", "strand")
+#TSS <- TSS[which(TSS$seqnames %in% chrm),]
+hs_TSS$Region <- "TSS"
+
+### Read in Promoters
+hs_Promoters <- read.delim("GRCh38.geneID_2000up.bed", 
+                          header = FALSE,
+                          skip = 1)
+hs_Promoters <- hs_Promoters[,c(1:4,6)]
+colnames(hs_Promoters) <- c("seqnames", "start", "end", "GeneID", "strand")
+#Promoters <- Promoters[which(Promoters$seqnames %in% chrm),]
+hs_Promoters$Region <- "Promoters"
+
+###### Read in Protein coding
+hs_protein_coding <- read.delim("GRCh38.114.protein_coding.bed", 
+                          header = FALSE,
+                          skip = 1)
+hs_protein_coding <- hs_protein_coding[,c(1:4,6:7)]
+colnames(hs_protein_coding) <- c("seqnames", "start", "end", "GeneID", "strand", "name")
+#hs_Known_genes <- hs_Known_genes[which(Known_genes$seqnames %in% chrm),]
+#hs_pc <- hs_protein_coding[,c(1:3)]
+hs_protein_coding$Region <- "protein_coding"
+
+##### Read in ncRNA
+hs_ncRNA <- read.delim("GRCh38.ncRNA.114.bed", 
+                          header = FALSE,
+                          skip = 1)
+hs_ncRNA <- hs_ncRNA[,c(1:4,6)]
+colnames(hs_ncRNA) <- c("seqnames", "start", "end", "Gene", "strand")
+#hs_Known_genes <- hs_Known_genes[which(Known_genes$seqnames %in% chrm),]
+#hs_ncRNA <- hs_ncRNA[,c(1:3)]
+hs_ncRNA$Region <- "ncRNA"
+
+#### Read in ncRNA subtypes
+
+
+```
+
+
+# Convert DMVs to GRanges  
+```{r}
+#rods2m_gr <- makeGRangesFromDataFrame(rods2m_bed)
+rods3m_gr <- makeGRangesFromDataFrame(rods3m_bed)
+hsc_gr <- makeGRangesFromDataFrame(hsc_bed)
+e8.5_gr <- makeGRangesFromDataFrame(e8.5_bed)
+rpc_e11.5_gr <- makeGRangesFromDataFrame(RPC_e11.5_bed)
+rpc_e12.5_gr <- makeGRangesFromDataFrame(RPC_e12.5_bed)
+rpc_E14.5_gr <- makeGRangesFromDataFrame(RPC_e14.5_bed)
+rpc_E17.5_gr <- makeGRangesFromDataFrame(RPC_e17.5_bed)
+rpc_p3_gr <- makeGRangesFromDataFrame(RPC_p3_bed)
+ret_p21_gr <- makeGRangesFromDataFrame(Ret_P21)
+cones2m_gr <- makeGRangesFromDataFrame(cones2m_bed)
+fc1w_gr <- makeGRangesFromDataFrame(FC_1wk)
+fc2w_gr <- makeGRangesFromDataFrame(FC_2wk)
+neun_gr <- makeGRangesFromDataFrame(NeuN_pos)
+
+###### Human DMV ######
+Donor1_Macula_gr <- makeGRangesFromDataFrame(Donor1_Mac)
+Donor1_Macula_gr_std <- standardize_seqlevels_hs(Donor1_Macula_gr)
+
+```
+
+# Convert uDMVs to GRanges  
+```{r}
+rods3m_unique_gr <- makeGRangesFromDataFrame(rod3m_unique)
+cones2m_unique_gr <- makeGRangesFromDataFrame(cones2m_unique)
+p3_unique_gr <- makeGRangesFromDataFrame(p3_unique)
+p21_unique_gr <- makeGRangesFromDataFrame(p21_unique)
+p21_r21_unique_gr <- makeGRangesFromDataFrame(p21_R21_unique)
+NeuN_pos_unique_gr <- makeGRangesFromDataFrame(NeuN_pos_unique)
+
+```
+
+# Convert genomic regions to GRanges 
+```{r}
+# Convert Mouse genomic regions to GRanges 
+
+#####Convert Genic & intergenic regions to GRanges
+knownGenes <- makeGRangesFromDataFrame(Known_genes) 
+genic <- makeGRangesFromDataFrame(Genic)
+Intergenic <- makeGRangesFromDataFrame(intergenic)
+#tss <- makeGRangesFromDataFrame(TSS)
+
+NcRNA <- makeGRangesFromDataFrame(ncRNA)
+pc <- makeGRangesFromDataFrame(protein_coding)
+
+
+#####Convert Human Genic & intergenic regions to GRanges
+hs_genic <- makeGRangesFromDataFrame(hs_Genic)
+hs_Intergenic <- makeGRangesFromDataFrame(hs_intergenic)
+hs_tss <- makeGRangesFromDataFrame(hs_TSS)
+hs_Promoter <- makeGRangesFromDataFrame(hs_Promoters) 
+hs_NcRNA <- makeGRangesFromDataFrame(hs_ncRNA)
+hs_pc <- makeGRangesFromDataFrame(hs_protein_coding)
+```
+
+
+#Overlaps between DMVs and gene regions for all cell types
+```{r}
+###### Rods #######
+
+overlaps_RodDMV_genic <- findOverlaps(rods3m_gr, genic)
+overlaps_RodDMV_intergenic <- findOverlaps(rods3m_gr, Intergenic)
+
+#overlaps_RodDMV_promoter <- findOverlaps(rods3m_gr, Promoter)
+#overlaps_RodDMV_tss <- findOverlaps(rods3m_gr, tss)
+
+overlaps_RodDMV_ncRNA <- findOverlaps(rods3m_gr, NcRNA)
+overlaps_RodDMV_pc <- findOverlaps(rods3m_gr, pc)
+
+###### Cones #######
+
+overlaps_ConeDMV_genic <- findOverlaps(cones2m_gr, genic)
+overlaps_ConeDMV_intergenic <- findOverlaps(cones2m_gr, Intergenic)
+
+#overlaps_ConeDMV_promoter <- findOverlaps(cones2m_gr, Promoter)
+#overlaps_ConeDMV_tss <- findOverlaps(cones2m_unique_gr, tss)
+
+overlaps_ConeDMV_ncRNA <- findOverlaps(cones2m_gr, NcRNA)
+overlaps_ConeDMV_pc <- findOverlaps(cones2m_gr, pc)
+
+###### P3 #######
+
+overlaps_P3DMV_genic <- findOverlaps(rpc_p3_gr, genic)
+overlaps_P3DMV_intergenic <- findOverlaps(rpc_p3_gr, Intergenic)
+
+#overlaps_P3DMV_promoter <- findOverlaps(rpc_p3_gr, Promoter)
+#overlaps_P3DMV_tss <- findOverlaps(rpc_p3_gr, tss)
+
+overlaps_P3DMV_ncRNA <- findOverlaps(rpc_p3_gr, NcRNA)
+overlaps_P3DMV_pc <- findOverlaps(rpc_p3_gr, pc)
+
+###### P21 #######
+
+overlaps_P21DMV_genic <- findOverlaps(ret_p21_gr, genic)
+overlaps_P21DMV_intergenic <- findOverlaps(ret_p21_gr, Intergenic)
+
+#overlaps_P21DMV_promoter <- findOverlaps(ret_p21_gr, Promoter)
+#overlaps_P21DMV_tss <- findOverlaps(ret_p21_gr, tss)
+
+overlaps_P21DMV_ncRNA <- findOverlaps(ret_p21_gr, NcRNA)
+overlaps_P21DMV_pc <- findOverlaps(ret_p21_gr, pc)
+
+###### NeuN+ #######
+
+overlaps_NeuNDMV_genic <- findOverlaps(neun_gr, genic)
+overlaps_NeuNDMV_intergenic <- findOverlaps(neun_gr, Intergenic)
+
+#overlaps_NeuNDMV_promoter <- findOverlaps(neun_gr, Promoter)
+#overlaps_NeuNDMV_tss <- findOverlaps(neun_gr, tss)
+
+overlaps_NeuNDMV_ncRNA <- findOverlaps(neun_gr, NcRNA)
+overlaps_NeuNDMV_pc <- findOverlaps(neun_gr, pc)
+
+###### Human ######
+overlaps_Donor1_Macula_genic <- findOverlaps(Donor1_Macula_gr_std, hs_genic)
+overlaps_Donor1_Macula_intergenic <- findOverlaps(Donor1_Macula_gr_std, hs_Intergenic)
+
+#overlaps_Donor1_Macula_promoter <- findOverlaps(Donor1_Macula_gr_std, hs_Promoter)
+#overlaps_Donor1_Macula_tss <- findOverlaps(Donor1_Macula_gr_std, hs_tss)
+
+overlaps_Donor1_Macula_ncRNA <- findOverlaps(Donor1_Macula_gr_std, hs_NcRNA)
+overlaps_Donor1_Macula_pc <- findOverlaps(Donor1_Macula_gr_std, hs_pc)
+```
+
+
+### Find overlaps between uDMVs and gene regions for all cell types
+```{r}
+###### Rod #######
+
+overlaps_RoduDMV_genic <- findOverlaps(rods3m_unique_gr, genic)
+overlaps_RoduDMV_intergenic <- findOverlaps(rods3m_unique_gr, Intergenic)
+
+#overlaps_RoduDMV_promoter <- findOverlaps(rods3m_unique_gr, Promoter)
+#overlaps_RoduDMV_tss <- findOverlaps(rods3m_unique_gr, tss)
+
+overlaps_RoduDMV_ncRNA <- findOverlaps(rods3m_unique_gr, NcRNA)
+overlaps_RoduDMV_pc <- findOverlaps(rods3m_unique_gr, pc)
+
+###### Cones #######
+
+overlaps_ConeuDMV_genic <- findOverlaps(cones2m_unique_gr, genic)
+overlaps_ConeuDMV_intergenic <- findOverlaps(cones2m_unique_gr, Intergenic)
+
+#overlaps_ConeuDMV_promoter <- findOverlaps(cones2m_unique_gr, Promoter)
+#overlaps_ConeuDMV_tss <- findOverlaps(cones2m_unique_gr, tss)
+
+overlaps_ConeuDMV_ncRNA <- findOverlaps(cones2m_unique_gr, NcRNA)
+overlaps_ConeuDMV_pc <- findOverlaps(cones2m_unique_gr, pc)
+
+###### P3 #######
+
+overlaps_P3uDMV_genic <- findOverlaps(p3_unique_gr, genic)
+overlaps_P3uDMV_intergenic <- findOverlaps(p3_unique_gr, Intergenic)
+
+#overlaps_P3uDMV_promoter <- findOverlaps(p3_unique_gr, Promoter)
+#overlaps_P3uDMV_tss <- findOverlaps(p3_unique_gr, tss)
+
+overlaps_P3uDMV_ncRNA <- findOverlaps(p3_unique_gr, NcRNA)
+overlaps_P3uDMV_pc <- findOverlaps(p3_unique_gr, pc)
+
+###### P21 #######
+
+overlaps_P21uDMV_genic <- findOverlaps(p21_unique_gr, genic)
+overlaps_P21uDMV_intergenic <- findOverlaps(p21_unique_gr, Intergenic)
+
+#overlaps_P21uDMV_promoter <- findOverlaps(p21_unique_gr, Promoter)
+#overlaps_P21uDMV_tss <- findOverlaps(p21_unique_gr, tss)
+
+overlaps_P21uDMV_ncRNA <- findOverlaps(p21_unique_gr, NcRNA)
+overlaps_P21uDMV_pc <- findOverlaps(p21_unique_gr, pc)
+
+overlaps_P21_R21uDMV_genic <- findOverlaps(p21_r21_unique_gr, genic)
+
+###### NeuN+ #######
+
+overlaps_NeuNuDMV_genic <- findOverlaps(NeuN_pos_unique_gr, genic)
+overlaps_NeuNuDMV_intergenic <- findOverlaps(NeuN_pos_unique_gr, Intergenic)
+
+#overlaps_NeuNuDMV_promoter <- findOverlaps(NeuN_pos_unique_gr, Promoter)
+#overlaps_NeuNuDMV_tss <- findOverlaps(NeuN_pos_unique_gr, tss)
+
+overlaps_NeuNuDMV_ncRNA <- findOverlaps(NeuN_pos_unique_gr, NcRNA)
+overlaps_NeuNuDMV_pc <- findOverlaps(NeuN_pos_unique_gr, pc)
+
+```
+
+
+##Create overlap Dataframes for all cell types for DMV genes
+```{r}
+overlap_df_RodDMV_genic <- data.frame(
+  DMV_Rod = as.data.frame(rods3m_gr)[queryHits(overlaps_RodDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_RodDMV_genic), ]
+)
+
+overlap_df_ConesDMV_genic <- data.frame(
+  DMV_Cones = as.data.frame(cones2m_gr)[queryHits(overlaps_ConeDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_ConeDMV_genic), ]
+)
+
+overlap_df_p3DMV_genic <- data.frame(
+  DMV_p3 = as.data.frame(rpc_p3_gr)[queryHits(overlaps_P3DMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_P3DMV_genic), ]
+)
+
+overlap_df_p21DMV_genic <- data.frame(
+  DMV_p21 = as.data.frame(ret_p21_gr)[queryHits(overlaps_P21DMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_P21DMV_genic), ]
+)
+
+overlap_df_NeuN_DMV_genic <- data.frame(
+  DMV_NeuN_pos = as.data.frame(neun_gr)[queryHits(overlaps_NeuNDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_NeuNDMV_genic), ]
+)
+
+
+###### Human ######
+
+overlap_df_Do1_Macula_genic <- data.frame(
+  Donor1_Macula = as.data.frame(Donor1_Macula_gr_std)[queryHits(overlaps_Donor1_Macula_genic), ],
+  Region = as.data.frame(hs_genic)[subjectHits(overlaps_Donor1_Macula_genic), ]
+)
+
+```
+
+
+##Create overlap Dataframes for all cell types for *uDMV* genes for R21 grant
+```{r}
+overlap_df_RoduDMV_genic <- data.frame(
+  u_DMV_Rod = as.data.frame(rods3m_unique_gr)[queryHits(overlaps_RoduDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_RoduDMV_genic), ]
+)
+
+overlap_df_ConesuDMV_genic <- data.frame(
+  u_DMV_Cones = as.data.frame(cones2m_unique_gr)[queryHits(overlaps_ConeuDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_ConeuDMV_genic), ]
+)
+
+overlap_df_p3uDMV_genic <- data.frame(
+  u_DMV_p3 = as.data.frame(p3_unique_gr)[queryHits(overlaps_P3uDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_P3uDMV_genic), ]
+)
+
+overlap_df_p21uDMV_genic <- data.frame(
+  u_DMV_p21 = as.data.frame(p21_unique_gr)[queryHits(overlaps_P21uDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_P21uDMV_genic), ]
+)
+
+#this does not exclude rod and cone dmvs
+overlap_df_p21_r21uDMV_genic <- data.frame(
+  u_DMV_p21_r21 = as.data.frame(p21_r21_unique_gr)[queryHits(overlaps_P21_R21uDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_P21_R21uDMV_genic), ]
+)
+
+overlap_df_NeuN_uDMV_genic <- data.frame(
+  u_DMV_NeuN_pos = as.data.frame(NeuN_pos_unique_gr)[queryHits(overlaps_NeuNuDMV_genic), ],
+  Region = as.data.frame(genic)[subjectHits(overlaps_NeuNuDMV_genic), ]
+)
+
+```
+
+#Output DMV gene lists for all Cell Types
+```{r}
+setwd("/home/groups/ximenac/01_DMV_Rods/notebooks/R_analysis/DMV_genes/")
+
+##### Mouse #####
+
+write.csv(overlap_df_p3DMV_genic$Region.GeneID, file="P3_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+write.csv(overlap_df_p21DMV_genic$Region.GeneID, file="P21_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+write.csv(overlap_df_RodDMV_genic$Region.GeneID, file="Rod3m_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+write.csv(overlap_df_ConesDMV_genic$Region.GeneID, file="Cone2m_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+write.csv(overlap_df_NeuN_DMV_genic$Region.GeneID, file="NeuN+_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+#Mouse gene IDs were converted to Human gene IDs using https://www.syngoportal.org/convert
+
+##### Human #####
+write.csv(overlap_df_Do1_Macula_genic$Region.GeneID, file="Donor1_Macula_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+```
+
+
+#Output uDMV gene lists for all Cell Types
+```{r}
+
+setwd("/home/groups/ximenac/01_DMV_Rods/notebooks/R_analysis/uDMV_genes/")
+
+##### Mouse #####
+
+write.csv(overlap_df_p3uDMV_genic$Region.GeneID, file="P3_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+write.csv(overlap_df_p21uDMV_genic$Region.GeneID, file="P21_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+write.csv(overlap_df_p21_r21uDMV_genic$Region.GeneID, file="P21_R21_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+write.csv(overlap_df_RoduDMV_genic$Region.GeneID, file="Rod3m_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+write.csv(overlap_df_ConesuDMV_genic$Region.GeneID, file="Cone2m_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+write.csv(overlap_df_NeuN_uDMV_genic$Region.GeneID, file="NeuN_pos_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+#Mouse gene IDs were converted to Human gene IDs using https://www.syngoportal.org/convert
+
+##### Human #####
+#write.csv(overlap_df_Do1_Macula_genic$Region.GeneID, file="DMV_genes/Donor1_Macula_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+```
+
+
+
+
+```{r}
+library(dplyr)
+#create the function to convert mouse to human genes
+homologs = read.csv("http://www.informatics.jax.org/downloads/reports/HOM_MouseHumanSequence.rpt",sep="\t")
+ms2hs <- function(gene_list){
+  output = c()
+  for(gene in gene_list){
+    class_key = (homologs %>% filter(Symbol == gene & Common.Organism.Name=="mouse, laboratory"))[['DB.Class.Key']]
+    if(!identical(class_key, integer(0)) ){
+      human_genes = (homologs %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="human"))[,"ID"]
+      for(human_gene in human_genes){
+        output = append(output,human_gene)
+      }
+    }
+  }
+  return (output)
+}
+
+#apply the function
+msgenes=overlap_df_p21DMV_genic$Region.GeneID
+ms2hs(msgenes)
+```
+
+
+#Output uDMV gene lists for all Cell Types
+```{r}
+
+```
+
+
+# Function to extend gene coordinates with strand consideration
+```{r}
+
+extend_gene_coordinates <- function(gene_windows, upstream = 1000, downstream = 1000) {
+    extended_windows <- gene_windows
+    # Handle positive and negative strands differently
+    pos_strand <- strand(gene_windows)@unlistData@values == "+" | strand(gene_windows)@unlistData@values == "*"
+    
+    # For positive strand genes:
+    # - extend upstream (5') from start
+    # - extend downstream (3') from end
+    start_pos <- start(gene_windows)
+    end_pos <- end(gene_windows) 
+    
+    # Adjust coordinates based on strand
+    new_starts <- ifelse(pos_strand,
+                        (start_pos) - upstream,  # positive strand: extend 5' upstream
+                        (start_pos) - downstream) # negative strand: extend 3' downstream
+    
+    new_ends <- ifelse(pos_strand,
+                      (end_pos) + downstream,    # positive strand: extend 3' downstream
+                      (end_pos) + upstream)      # negative strand: extend 5' upstream
+    
+    x <- IRangesList(
+        start = new_starts,
+        end = new_ends
+        #width = abs(new_starts-new_ends)
+    )
+    ranges(extended_windows) <- as.list(x)
+    return(extended_windows)
+}
+
+```
+
+
+# Load gene info from UCSC & Add gene symbols
+```{r}
+# Load gene info from UCSC
+txdb <- TxDb.Mmusculus.UCSC.mm39.refGene
+genes <- genes(txdb,
+                 single.strand.genes.only=FALSE)
+
+# Add gene symbols
+symbols <- mapIds(org.Mm.eg.db,
+                 keys = mcols(genes)$gene_id,
+                 column = "SYMBOL",
+                 keytype = "ENTREZID",
+                 multiVals = "first")
+mcols(genes)$symbol <- symbols
+
+#genes@unlistData@elementMetadata <- genes@elementMetadata
+#genes_ext <- extend_gene_coordinates(genes)
+
+```
+
+### Standardize chromosome names for all DMV files & Extend gene coordinates by 1kb on each side for unique Rods
+```{r}
+
+######### Unique to Rods ###########
+# Standardize chromosome names
+dmv_regions_unique <- standardize_seqlevels(unique_rods_12)
+genes_std <- standardize_seqlevels(genes)
+
+# Extend gene coordinates by 1kb on each side
+#genes_extended_uDMV_rods@unlistData@ranges@start <- genes_extended_uDMV_rods@unlistData@ranges@start - 1000
+
+#genes_extended_uDMV_rods <- flank(genes_extended_uDMV_rods, width=1000, both=TRUE)
+genes_extended <- resize(genes_std, width=width(genes_std)+2000, fix="center")
+
+#genes_extended <- extend_gene_coordinates(genes_std)
+
+######### Rod DMV genes shared with others ##########
+dmv_regions_shared <- standardize_seqlevels(shared_rods_12)
+
+```
+
+
+### Find overlaps between DMVs for all cell types and extended genes, and genomic regions
+```{r}
+# Find overlaps between DMVs and extended Rod genes (Rod Exclusive and Rod shared DMV genes)
+overlaps_rod_unique <- findOverlaps(dmv_regions_unique, genes_extended)
+overlaps_rod_shared <- findOverlaps(dmv_regions_shared, genes_extended)
+
+#### Genic ######
+
+
+#### Intergenic #####
+
+
+#### Both Genic and intergenic #####
+
+
+#### Protein Coding 
+
+
+#### Non-coding
+
+
+
+#### Protein Coding subtypes
+```
+
+
+### Standardize chromosome names & Extend gene coordinates by 1kb on each side for unique to cones
+```{r}
+######### Unique to Cones ###########
+# Standardize chromosome names
+dmv_unique_cones <- standardize_seqlevels(unique_cones_10)
+
+######### Cone DMV genes shared with others ##########
+dmv_cones_shared <- standardize_seqlevels(shared_cones_10)
+```
+
+### Find overlaps between DMVs and extended genes for Cones
+```{r}
+# Find overlaps between DMVs and extended Rod genes (Rod Exclusive and Rod shared DMV genes)
+overlaps_cones_unique <- findOverlaps(dmv_unique_cones, genes_extended)
+overlaps_cones_shared <- findOverlaps(dmv_cones_shared, genes_extended)
+```
+
+
+#Function to create overlap dataframe
+```{r}
+overlaps = overlaps_rod_shared
+genes_gr = genes_extended
+dmv_gr = dmv_regions_shared
+
+createOverlapDataFrame <- function(overlaps, genes_gr, dmv_gr) {
+  # Validate inputs
+  if (!is(overlaps, "Hits")) {
+    stop("overlaps must be a Hits object")
+  }
+  
+  # Extract hits
+  query_hits <- queryHits(overlaps)
+  subject_hits <- subjectHits(overlaps)
+  
+  # Create data frame with available information
+  overlap_df <- data.frame(
+    gene_id = genes_gr@elementMetadata@listData$gene_id[subject_hits],
+    gene_symbol = genes_gr@elementMetadata@listData$symbol[subject_hits],
+    #cpg_count = dmv_gr$CpG_count[query_hits],
+    chr = seqnames(dmv_gr)[query_hits],
+    dmv_start = start(dmv_gr)[query_hits],
+    dmv_end = end(dmv_gr)[query_hits],
+    stringsAsFactors = FALSE
+  )
+  
+  # Add indices for reference
+  overlap_df$query_index <- query_hits
+  overlap_df$subject_index <- subject_hits
+  
+  return(overlap_df)
+}
+```
+
+
+```{r}
+######Rod uDMV and shared DMV genes ###########
+overlap_df_rods_unique <- createOverlapDataFrame(
+  overlaps = overlaps_rod_unique,
+  genes_gr = genes_extended,
+  dmv_gr = dmv_regions_unique
+)
+overlap_df_rods_unique <- overlap_df_rods_unique[-which(overlap_df_rods_unique$gene_symbol %in% c("Rnu6", "Snora19", "Mir3084-2", "Mir3084-1", "Mir684-1")),]
+write.csv(overlap_df_rods_unique, file="Rod_uDMV_genes_mm39.csv")
+
+overlap_df_rods_shared <- createOverlapDataFrame(
+  overlaps = overlaps_rod_shared,
+  genes_gr = genes_extended,
+  dmv_gr = dmv_regions_shared
+)
+overlap_df_rods_shared <- overlap_df_rods_shared[-which(overlap_df_rods_shared$gene_symbol %in% c("Rnu6", "Snora19", "Mir3084-2", "Mir3084-1", "Mir684-1")),]
+write.csv(overlap_df_rods_shared, file="Rod_DMV_shared_genes_mm39.csv")
+
+######Cones uDMV and shared DMV genes ###########
+overlap_df_cones_unique <- createOverlapDataFrame(
+  overlaps = overlaps_cones_unique,
+  genes_gr = genes_extended,
+  dmv_gr = dmv_unique_cones
+)
+overlap_df_cones_unique <-  overlap_df_cones_unique[-which(overlap_df_cones_unique$gene_symbol %in% c("Rnu6", "Snora19", "Mir3084-2", "Mir3084-1", "Mir684-1")),]
+write.csv(overlap_df_cones_unique, file="Cones_uDMV_genes_mm39.csv")
+
+overlap_df_cones_shared <- createOverlapDataFrame(
+  overlaps = overlaps_cones_shared,
+  genes_gr = genes_extended,
+  dmv_gr = dmv_cones_shared
+)
+overlap_df_cones_shared <- overlap_df_cones_shared[-which(overlap_df_cones_shared$gene_symbol %in% c("Rnu6", "Snora19", "Mir3084-2", "Mir3084-1", "Mir684-1")),]
+write.csv(overlap_df_cones_shared, file="Cones_DMV_shared_genes_mm39.csv")
+
+```
+
+
+## How does gene expression data correlate with DMV associated genes
+```{r}
+Rod_uDMV_genes <- read.table("Rod_uDMV_genes_mm39.csv", header=TRUE, sep=',', row.names = 1)
+
+CPM <- read.delim("Mouse_FSPR_WT_Development_Gene_nCPM_ENSv98.tsv", header = TRUE, sep = "\t", quote = "\"", row.names = 1)
+CPM_P10 <- CPM[,c(5,22:25)]
+CPM_P10$Average_CPM <- rowMeans(CPM_P10[,2:5])
+colnames(CPM_P10)[1] <- "gene_symbol"
+Rod_uDMV_genes <- dplyr::right_join(Rod_uDMV_genes, CPM_P10[which(CPM_P10$gene_symbol %in% Rod_uDMV_genes$gene_symbol),c(1:5)], by="gene_symbol", multiple="first")
+
+CPM_P10[which(CPM_P10$gene_symbol %in% Rod_uDMV_genes$gene_symbol),c(1,6)]
+
+heatmap_df <- Rod_uDMV_genes[,c(2,8:11)]
+heatmap_df <- heatmap_df[!duplicated(heatmap_df$gene_symbol),]
+rownames(heatmap_df) <- heatmap_df$gene_symbol
+heatmap_df <- heatmap_df[,-1]
+heatmap_df[is.na(heatmap_df)] = 0
+#heatmap_df <- heatmap_df[(rowSums(heatmap_df))>0.5,]
+
+p <- pheatmap(t(log(heatmap_df+0.5)), scale="row", cutree_cols=5)
+p
+#Get the corresponding clusters of the genes based on their expression values
+#Here cluster 1 is lowest expression, cluster 2-3 are medium expression and cluster 4-5 are high expression
+heatmap_df.clust <- cbind(heatmap_df,
+                          cluster = cutree(p$tree_col, 
+                                       k = 5))
+
+heatmap_df.clust$Exp_Group <- ifelse(heatmap_df.clust$cluster == 1, "Low Expression", ifelse(heatmap_df.clust$cluster %in% c(2,3), "Medium Expression", "High Expression"))
+
+```
+
+
+```{r}
+
+```
+
+
+#Function to create Genomic Ranges object from overlap data frame
+```{r}
+overlapToGRanges <- function(overlap_df, genes_gr) {
+  # Create GRanges object
+  overlap_df_ <- overlap_df[-which(overlap_df$gene_symbol %in% c("Rnu6","Mir684-1", "Gm4064", "Gm10256", "Snora19", "Mir3084-2", "Mir3084-1")),]
+  gr <- GRanges(
+    seqnames = overlap_df$chr,
+    ranges = IRanges(
+      start = overlap_df$dmv_start,
+      end = overlap_df$dmv_end
+    ),
+    strand = strand(genes_gr)[overlap_df$subject_index]@unlistData  # Get strand from original genes
+  )
+  
+  # Add all other columns as metadata
+  metadata_cols <- setdiff(
+    colnames(overlap_df),
+    c("chr", "dmv_start", "dmv_end")
+  )
+  
+  mcols(gr) <- overlap_df[, metadata_cols]#, drop=FALSE]
+  
+  return(gr)
+}
+
+```
+
+# Convert overlap data frame to GRanges with strand information
+```{r}
+# Convert overlap data frame to GRanges with strand information
+overlap_gr <- overlapToGRanges(overlap_df, genes_extended)
+overlap_gr
+saveRDS(overlap_gr, "/home/groups/ximenac/XCD_BSSeq/R_analysis/overlap_gr.rds")
+# bpairs where there is both a DMV and a gene (extended)
+
+# Search for 'rho' in the gene_symbol metadata of overlap_gr
+rho_matches <- grepl("rho", mcols(overlap_gr)$gene_symbol, ignore.case = TRUE)
+
+# Subset GRanges object for rows with 'rho'
+rho_overlap <- overlap_gr[rho_matches]
+```
+
+### Check and print the result
+```{r}
+if (length(rho_overlap) > 0) {
+  print("Overlap information for genes containing 'rho':")
+  print(rho_overlap)
+} else {
+  print("No overlaps found for genes containing 'rho'.")
+}
+
+#found Rho in overlaps_gr 
+
+# # Create overlap data frame with gene names and cell types
+# overlap_df <- data.frame(
+#     gene = genes_extended$symbol[subjectHits(overlaps)],
+#     dmv_region = dmv_regions_std$celltype[queryHits(overlaps)]
+# )
+
+# # Get rod-specific genes
+# rod_genes <- overlap_df$gene[overlap_df$dmv_region == "Rods"]
+# rod_genes_idx <- unique(rod_genes)
+
+# # Create rod-specific windows
+# rod_specific_windows <- genes_extended[genes_extended$symbol %in% rod_genes_idx]
+# #227 windows 
+```
+
+
+# Function to process methylation 2
+```{r}
+process_methylation <- function(input_files, gene_windows, n_bins = 20) {
+  # Load methylation data
+  bis <- readRDS(input_files[1])
+  options(matrixStats.useNames = FALSE)
+  
+  # Print summary
+  cat("\nProcessing details:\n")
+  cat("BSseq object:", length(bis), "positions\n")
+  cat("Gene regions:", length(gene_windows), "regions\n")
+  
+  # Calculate bin size
+  window_size <- 2000  # 1kb upstream + 1kb downstream
+  bin_size <- window_size %/% n_bins
+  cat("Window size:", window_size, "bp (1kb each side of TSS)\n")
+  cat("Bin size:", bin_size, "bp\n")
+  
+  # Initialize matrix
+  all_methylation <- matrix(NA,
+                           nrow = length(gene_windows),
+                           ncol = n_bins)
+  rownames(all_methylation) <- gene_windows$gene_symbol
+  colnames(all_methylation) <- paste0("bin", seq_len(n_bins))
+  
+  # Process each gene
+  for(j in seq_along(gene_windows)) {
+    current_gene <- gene_windows[j]
+    is_positive <- as.character(strand(current_gene)) %in% c("+", "*")
+    
+    # Get TSS position based on strand
+    tss_pos <- if(is_positive) start(current_gene) else end(current_gene)
+    
+    # Debug first few genes
+    if(j <= 3) {
+      cat("\nProcessing gene:", current_gene$gene_symbol, "\n")
+      cat("Strand:", as.character(strand(current_gene)), "\n")
+      cat("TSS position:", tss_pos, "\n")
+      cat("Chromosome:", as.character(seqnames(current_gene)), "\n")
+    }
+    
+    # Process bins
+    for(i in seq_len(n_bins)) {
+      # Calculate bin coordinates relative to TSS
+      if(is_positive) {
+        bin_start <- tss_pos - 1000 + (i-1) * bin_size
+        bin_end <- bin_start + bin_size - 1
+      } else {
+        bin_start <- tss_pos + 1000 - (i * bin_size)
+        bin_end <- bin_start + bin_size - 1
+      }
+      
+      bin_range <- GRanges(
+        seqnames = seqnames(current_gene),
+        ranges = IRanges(start = bin_start, end = bin_end),
+        strand = strand(current_gene)
+      )
+      seqlevels(bin_range) <- seqlevels(bis)
+      
+      # Debug first gene's bins
+      if(j == 1 && i <= 3) {
+        cat("Bin", i, "coordinates:", bin_start, "-", bin_end, "\n")
+      }
+      
+      tryCatch({
+        meth <- suppressWarnings(
+          getMeth(bis, 
+                 regions = bin_range, 
+                 type = "smooth", 
+                 what = "perRegion")
+        )
+        if(length(meth) > 0) {
+          all_methylation[j, i] <- meth
+          if(j == 1 && i <= 3) {
+            cat("Methylation value:", meth, "\n")
+          }
+        }
+      }, error = function(e) {
+        if(j <= 3) {
+          message("Error for gene ", current_gene$gene_symbol, 
+                 " bin ", i, ": ", conditionMessage(e))
+        }
+      })
+    }
+    
+    if(j %% 10 == 0) {
+      message("Processed ", j, " of ", length(gene_windows), " genes")
+    }
+  }
+  
+  return(all_methylation)
+}
+```
+
+
+### Rho specific DMVs -  this process takes a loong time > 1 hour!
+```{r}
+# Process methylation for genes that overlap with rod-specific DMVs
+rod_methylation <- process_methylation(input_files_by_type$Rods, overlap_gr, n_bins = 20)
+saveRDS(rod_methylation, file = "rod_methylation_matrix.RDS")
+rod_methylation <- readRDS("rod_methylation_matrix.RDS")
+
+# Search for genes with 'rho' in their name (case-insensitive)
+rho_matches <- grepl("Lbhd1", rownames(rod_methylation), ignore.case = TRUE)
+
+# Subset the matrix for matching genes
+rho_genes <- rod_methylation[rho_matches, ]
+
+# Check and print results
+if (length(rho_genes) > 0) {
+  cat("Methylation values for genes containing 'rho':\n")
+  print(rho_genes)
+} else {
+  cat("No genes containing 'rho' were found.\n")
+}
+
+# Replace NAs with a chosen value (e.g., zero or the row mean)
+rod_methylation_no_na <- rod_methylation
+for (i in 1:nrow(rod_methylation_no_na)) {
+  rod_methylation_no_na[i, is.na(rod_methylation_no_na[i, ])] <- mean(rod_methylation_no_na[i, ], na.rm = TRUE)
+}
+
+```
+
+### Calculate 1kb upstream and downstream of TSS
+
+```{r}
+region_start <- tss_pos - 1000
+region_end <- tss_pos + 1000
+
+cat("\nGene:", lbhd1_gene$symbol,
+    "\nStrand:", strand_lbhd1,
+    "\nTSS position:", tss_pos,
+    "\n2kb region around TSS:", region_start, "-", region_end)
+
+# Extract TSS and calculate 2kb region
+tss <- ifelse(as.character(strand(rho_gene)) == "+", 
+              start(rho_gene), 
+              end(rho_gene))
+
+# Calculate 1kb upstream and downstream
+tss_region <- c(tss - 1000, tss + 1000)
+
+cat("\nTSS position:", tss,
+    "\n2kb region around TSS:", tss_region[1], "-", tss_region[2])
+
+```
+
+
+```{r}
+
+```
+
+
+### Process methylation for genes that overlap with rod-specific DMVs
+```{r}
+# Process methylation for genes that overlap with rod-specific DMVs
+rod_methylation <- process_methylation(input_files_by_type$Rods, overlap_gr, n_bins = 20)
+saveRDS(rod_methylation, file = "rod_methylation_matrix.RDS")
+rod_methylation <- readRDS("rod_methylation_matrix.RDS")
+
+# Search for genes with 'rho' in their name (case-insensitive)
+rho_matches <- grepl("Lbhd1", rownames(rod_methylation), ignore.case = TRUE)
+
+# Subset the matrix for matching genes
+rho_genes <- rod_methylation[rho_matches, ]
+```
+
+
+
+```{r}
+# Check and print results
+if (length(rho_genes) > 0) {
+  cat("Methylation values for genes containing 'rho':\n")
+  print(rho_genes)
+} else {
+  cat("No genes containing 'rho' were found.\n")
+}
+```
+
+
+```{r}
+# Replace NAs with a chosen value (e.g., zero or the row mean)
+rod_methylation_no_na <- rod_methylation
+for (i in 1:nrow(rod_methylation_no_na)) {
+  rod_methylation_no_na[i, is.na(rod_methylation_no_na[i, ])] <- mean(rod_methylation_no_na[i, ], na.rm = TRUE)
+}
+
+# Calculate 1kb upstream and downstream of TSS
+region_start <- tss_pos - 1000
+region_end <- tss_pos + 1000
+
+cat("\nGene:", lbhd1_gene$symbol,
+    "\nStrand:", strand_lbhd1,
+    "\nTSS position:", tss_pos,
+    "\n2kb region around TSS:", region_start, "-", region_end)
+
+```
+
+
+
+# Function to create Excel-ready methylation data
+```{r}
+# Function to create Excel-ready methylation data
+create_methylation_excel <- function(overlap_gr, methylation_matrix) {
+  # Get TSS positions
+  tss_positions <- ifelse(
+    as.character(strand(overlap_gr)) == "+",
+    start(overlap_gr),
+    end(overlap_gr)
+  )
+  
+  # Create base data frame with gene info
+  base_data <- data.frame(
+    gene_symbol = mcols(overlap_gr)$gene_symbol,
+    chromosome = as.character(seqnames(overlap_gr)),
+    strand = strand(overlap_gr),
+    range_2kb = paste(tss_positions - 1000, tss_positions + 1000, sep = "-"),
+    cpg_count = mcols(overlap_gr)$cpg_count
+  )
+  
+  # Add methylation values for each bin
+  bin_data <- as.data.frame(methylation_matrix)
+  colnames(bin_data) <- paste0("bin", 1:ncol(methylation_matrix))
+  
+  # Combine all data
+  final_data <- cbind(base_data, bin_data)
+  
+  # Write to CSV
+  write.csv(
+    final_data,
+    file = "methylation_data_with_bins.csv",
+    row.names = FALSE,
+    quote = FALSE
+  )
+  
+  return(final_data)
+}
+
+methylation_excel <- create_methylation_excel(overlap_gr, rod_methylation)
+
+```
+
