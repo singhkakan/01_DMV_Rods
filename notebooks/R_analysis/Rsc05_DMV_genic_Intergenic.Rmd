@@ -114,7 +114,6 @@ standardize_seqlevels_hs <- function(gr) {
 # Read in Bed files with DMV info
 ```{r}
 base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/"
-cell_type <- c("E8.5", "Ret_E11.5", "Ret_E12.5", "Ret_E14.5", "Ret_E17.5", "Ret_P3", "Ret_P21","Rod3m", "Cones2m","FC_1w", "FC_2w",  "NeuN_pos", "HSC")
 
 #rods2m_bed <- read_dmv_file(paste0(base_path, "Rods2m_DMVs_with_CpG.bed"))
 hsc_bed <- read_dmv_file(paste0(base_path, "HSC_DMVs_with_CpG.bed"))
@@ -131,14 +130,27 @@ FC_1wk <- read_dmv_file(paste0(base_path, "R_analysis/FC_Neu/FC_1w_DMVs_with_CpG
 FC_2wk <- read_dmv_file(paste0(base_path, "R_analysis/FC_Neu/FC_2w_DMVs_with_CpG.bed"))
 NeuN_pos <- read_dmv_file(paste0(base_path, "R_analysis/FC_Neu/NeuN_DMVs_with_CpG.bed"))
 
-
-
 ###### Human DMV ######
 Donor1_Mac <- read_dmv_file(paste0(base_path, "R_analysis/Hs_Retina/Donor1_Macula_DMVs_with_CpG.bed"))
 
-
-
 ```
+
+
+```{r Read i DMV Bed files into a list}
+base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/"
+
+fileID <- c("HSC", "E8.5", "RPC_E11.5", "RPC_E12.5", "RPC_E14.5", "RPC_E17.5", "RPC_P3", "R_analysis/p21/P21", "R_analysis/Rods3m/Rod3m", "R_analysis/Cones2m/Cones2m", "R_analysis/FC_Neu/FC_1w", "R_analysis/FC_Neu/FC_2w", "R_analysis/FC_Neu/NeuN")
+
+cell_type <- c("HSC", "E8.5", "Ret_E11.5", "Ret_E12.5", "Ret_E14.5", "Ret_E17.5", "Ret_P3", "Ret_P21","Rod3m", "Cones2m","FC_1w", "FC_2w",  "NeuN_pos")
+
+DMV_Beds <- list()
+
+for (i in 1:length(cell_type)) {
+  DMV_Beds[[i]] <- read_dmv_file(paste0(base_path, fileID[i], "_DMVs_with_CpG.bed"))
+  names(DMV_Beds)[i] <- cell_type[i]
+}
+```
+
 
 #R21 Grant 
 ### Find unique DMVs
