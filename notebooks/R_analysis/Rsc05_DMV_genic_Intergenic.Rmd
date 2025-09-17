@@ -779,6 +779,15 @@ hs_pc <- makeGRangesFromDataFrame(hs_protein_coding)
 ```
 
 
+```{r conversation genome types bed list to gr}
+mmu_genome_regions_gr <- list()
+for (i in 1:length(genome_type)) {
+  mmu_genome_regions_gr[[i]] <- makeGRangesFromDataFrame(genic_types[[i]])
+  names(mmu_genome_regions_gr)[i] <- names(genic_types)[i]
+}
+```
+
+
 #Overlaps between DMVs and gene regions for all cell types
 ```{r}
 ###### Rods #######
@@ -846,6 +855,11 @@ overlaps_Donor1_Macula_intergenic <- findOverlaps(Donor1_Macula_gr_std, hs_Inter
 overlaps_Donor1_Macula_ncRNA <- findOverlaps(Donor1_Macula_gr_std, hs_NcRNA)
 overlaps_Donor1_Macula_pc <- findOverlaps(Donor1_Macula_gr_std, hs_pc)
 ```
+
+```{r}
+
+```
+
 
 
 ### Find overlaps between uDMVs and gene regions for all cell types
