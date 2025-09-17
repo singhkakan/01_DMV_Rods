@@ -20,7 +20,6 @@ library(matrixStats)
 library(dplyr)
 library(Biostrings)
 library(bsseq)
-library(BSgenome.Mmusculus.UCSC.mm10)
 library(rtracklayer)
 library(GenomicRanges)
 library(BiocParallel)
@@ -533,7 +532,7 @@ for (i in 1:length(cell_type)) {
 
 
 #Read in bed file of mouse genomic regions
-```{r}
+```{r old code 3, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 
 setwd("/home/groups/ximenac/01_DMV_Rods/data/01_raw/mouse_genome_no_patches/")
 
@@ -598,16 +597,12 @@ colnames(ncRNA) <- c("seqnames", "start", "end", "Gene", "strand")
 #ncRNA <- ncRNA[,c(1:3)]
 ncRNA$Region <- "ncRNA"
 
-
-
-
 #### Read in ncRNA subtypes
-
 
 ```
 
 
-```{r}
+```{r Read in mouse genome bed files}
 setwd("/home/groups/ximenac/01_DMV_Rods/data/01_raw/mouse_genome_no_patches/")
 
 genome_fileID <- c("geneID", "geneID_2000up", "Intergenic", "TSS", "promoter_regions", "proteinCoding","ncRNA")
@@ -625,7 +620,7 @@ for (i in 1:length(genome_type)) {
     genic_types[[i]] <- genic_types[[i]][,c(1:4,6)]
     colnames(genic_types[[i]]) <- c("seqnames", "start", "end", "Gene", "strand")
   }
-  if (length(colnames(genic_types[[i]])) < 4) {
+  else {
     colnames(genic_types[[i]]) <- c("seqnames", "start", "end")
   }
   genic_types[[i]]$Region <- genome_type[i]
@@ -708,7 +703,7 @@ hs_ncRNA$Region <- "ncRNA"
 
 
 # Convert DMVs to GRanges  
-```{r}
+```{r Old Code 4, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
 #rods2m_gr <- makeGRangesFromDataFrame(rods2m_bed)
 rods3m_gr <- makeGRangesFromDataFrame(rods3m_bed)
 hsc_gr <- makeGRangesFromDataFrame(hsc_bed)
@@ -728,10 +723,29 @@ neun_gr <- makeGRangesFromDataFrame(NeuN_pos)
 Donor1_Macula_gr <- makeGRangesFromDataFrame(Donor1_Mac)
 Donor1_Macula_gr_std <- standardize_seqlevels_hs(Donor1_Macula_gr)
 
+
+
 ```
 
+
+```{r Convert DMVs and uDMVs to genomic ranges object}
+DMV_Beds_gr <- list()
+for (i in 1:length(cell_type)){
+  DMV_Beds_gr[[i]] <- makeGRangesFromDataFrame(DMV_Beds[[i]])
+  names(DMV_Beds_gr)[i] <- names(DMV_Beds)[[i]]
+}
+
+uDMV_Beds_gr <- list()
+for (i in 1:length(cell_type)){
+  uDMV_Beds_gr[[i]] <- makeGRangesFromDataFrame(uDMV_Beds[[i]])
+  names(uDMV_Beds_gr)[i] <- names(uDMV_Beds)[[i]]
+}
+```
+
+
 # Convert uDMVs to GRanges  
-```{r}
+```{r Old Code 5, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
 rods3m_unique_gr <- makeGRangesFromDataFrame(rod3m_unique)
 cones2m_unique_gr <- makeGRangesFromDataFrame(cones2m_unique)
 p3_unique_gr <- makeGRangesFromDataFrame(p3_unique)
