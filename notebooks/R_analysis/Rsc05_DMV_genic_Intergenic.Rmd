@@ -112,7 +112,7 @@ standardize_seqlevels_hs <- function(gr) {
 
 
 # Read in Bed files with DMV info
-```{r}
+```{r old code 1, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/"
 
 #rods2m_bed <- read_dmv_file(paste0(base_path, "Rods2m_DMVs_with_CpG.bed"))
@@ -498,7 +498,7 @@ awk -v NUM_FILES=13 '$4 == NUM_FILES' shared_DMVs/master.counts.bed | sort -k1,1
 
 
 # Read in Bed files with unique DMV info
-```{r}
+```{r Old Code 2, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/"
 
 hsc_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/HSC_unique_DMVs.bed"))
@@ -515,6 +515,20 @@ cones2m_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/Cones2m_unique_DM
 FC_1wk_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/FC_1w_unique_DMVs.bed"))
 FC_2wk_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/FC_2w_unique_DMVs.bed"))
 NeuN_pos_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/NeuN+_unique_DMVs.bed"))
+```
+
+
+```{r}
+base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/unique_DMVs/"
+
+ufileID <- c("HSC", "E8.5", "RPC_E11.5", "RPC_E12.5", "Ret_E14.5", "Ret_E17.5", "P3", "P21", "Rod3m", "Cones2m", "FC_1w", "FC_2w", "NeuN+")
+
+uDMV_Beds <- list()
+
+for (i in 1:length(cell_type)) {
+  uDMV_Beds[[i]] <- read_dmv_file(paste0(base_path, ufileID[i], "_unique_DMVs.bed"))
+  names(uDMV_Beds)[i] <- cell_type[i]
+}
 ```
 
 
