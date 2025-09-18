@@ -723,8 +723,6 @@ neun_gr <- makeGRangesFromDataFrame(NeuN_pos)
 Donor1_Macula_gr <- makeGRangesFromDataFrame(Donor1_Mac)
 Donor1_Macula_gr_std <- standardize_seqlevels_hs(Donor1_Macula_gr)
 
-
-
 ```
 
 
@@ -756,7 +754,7 @@ NeuN_pos_unique_gr <- makeGRangesFromDataFrame(NeuN_pos_unique)
 ```
 
 # Convert genomic regions to GRanges 
-```{r}
+```{r Old Code 6, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
 # Convert Mouse genomic regions to GRanges 
 
 #####Convert Genic & intergenic regions to GRanges
@@ -789,7 +787,7 @@ for (i in 1:length(genome_type)) {
 
 
 #Overlaps between DMVs and gene regions for all cell types
-```{r}
+```{r Old Code 7, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
 ###### Rods #######
 
 overlaps_RodDMV_genic <- findOverlaps(rods3m_gr, genic)
@@ -856,11 +854,26 @@ overlaps_Donor1_Macula_ncRNA <- findOverlaps(Donor1_Macula_gr_std, hs_NcRNA)
 overlaps_Donor1_Macula_pc <- findOverlaps(Donor1_Macula_gr_std, hs_pc)
 ```
 
-```{r}
 
+```{r Overlaps between DMVs and gene regions}
+#Create a 2D list of list for each cell type containing the information on matching regions for each of the genome types
+
+overlaps_cellType_genomeRegion <- list()
+
+for (i in 1:length(cell_type)) {
+  overlaps_cellType_genomeRegion[[i]] <- list()
+  names(overlaps_cellType_genomeRegion)[i] <- cell_type[i]
+  for (j in 1:length(genome_type)) {
+    overlaps_cellType_genomeRegion[[i]][[j]] <- list()
+    names(overlaps_cellType_genomeRegion[[i]])[j] <- genome_type[j]
+    hits <- findOverlaps(DMV_Beds_gr[[i]], mmu_genome_regions_gr[[j]])
+    overlaps_cellType_genomeRegion[[i]][[j]] <- (hits)
+    if (length(hits) > 0) {
+      #overlaps_cellType_genomeRegion[[i]][[j]] <- pintersect(DMV_Beds_gr[[i]], mmu_genome_regions_gr[[j]], hits)
+    }
+  }
+}
 ```
-
-
 
 ### Find overlaps between uDMVs and gene regions for all cell types
 ```{r}
@@ -920,6 +933,11 @@ overlaps_NeuNuDMV_intergenic <- findOverlaps(NeuN_pos_unique_gr, Intergenic)
 
 overlaps_NeuNuDMV_ncRNA <- findOverlaps(NeuN_pos_unique_gr, NcRNA)
 overlaps_NeuNuDMV_pc <- findOverlaps(NeuN_pos_unique_gr, pc)
+
+```
+
+
+```{r}
 
 ```
 
