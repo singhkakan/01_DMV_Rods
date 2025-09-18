@@ -876,7 +876,7 @@ for (i in 1:length(cell_type)) {
 ```
 
 ### Find overlaps between uDMVs and gene regions for all cell types
-```{r}
+```{r Old Code 8, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 ###### Rod #######
 
 overlaps_RoduDMV_genic <- findOverlaps(rods3m_unique_gr, genic)
@@ -937,8 +937,24 @@ overlaps_NeuNuDMV_pc <- findOverlaps(NeuN_pos_unique_gr, pc)
 ```
 
 
-```{r}
+```{r overlaps between uDMVs and gene region}
+#Create a 2D list of list for each cell type containing the information on matching regions for each of the genome types
 
+uDMV_overlaps_cellType_genomeRegion <- list()
+
+for (i in 1:length(cell_type)) {
+  uDMV_overlaps_cellType_genomeRegion[[i]] <- list()
+  names(uDMV_overlaps_cellType_genomeRegion)[i] <- cell_type[i]
+  for (j in 1:length(genome_type)) {
+    uDMV_overlaps_cellType_genomeRegion[[i]][[j]] <- list()
+    names(uDMV_overlaps_cellType_genomeRegion[[i]])[j] <- genome_type[j]
+    hits <- findOverlaps(uDMV_Beds_gr[[i]], mmu_genome_regions_gr[[j]])
+    uDMV_overlaps_cellType_genomeRegion[[i]][[j]] <- (hits)
+    if (length(hits) > 0) {
+      #uDMV_overlaps_cellType_genomeRegion[[i]][[j]] <- pintersect(DMV_Beds_gr[[i]], mmu_genome_regions_gr[[j]], hits)
+    }
+  }
+}
 ```
 
 
