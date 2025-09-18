@@ -598,24 +598,41 @@ colnames(ncRNA) <- c("seqnames", "start", "end", "Gene", "strand")
 #ncRNA <- ncRNA[,c(1:3)]
 ncRNA$Region <- "ncRNA"
 
-genic_types <- list()
 
-for (i in length(6)) {
-  genic_types[[i]] <- read.delim("GRCm39.ncRNA.bed", 
-                          header = FALSE,
-                          skip = 1)
-ncRNA <- ncRNA[,c(1:4,6)]
-colnames(ncRNA) <- c("seqnames", "start", "end", "Gene", "strand")
-#Known_genes <- Known_genes[which(Known_genes$seqnames %in% chrm),]
-#ncRNA <- ncRNA[,c(1:3)]
-ncRNA$Region <- "ncRNA"
-names(genic_types[[i]]) <- c()
-}
+
 
 #### Read in ncRNA subtypes
 
 
 ```
+
+
+```{r}
+setwd("/home/groups/ximenac/01_DMV_Rods/data/01_raw/mouse_genome_no_patches/")
+
+genome_fileID <- c("geneID", "geneID_2000up", "Intergenic", "TSS", "promoter_regions", "proteinCoding","ncRNA")
+
+genome_type <- c("Known_genes", "Genic", "InterGenic",  "TSS", "Promoters", "protein_coding","ncRNA")
+
+genic_types <- list()
+
+for (i in 1:length(genome_type)) {
+  genic_types[[i]] <- read.delim(paste0("GRCm39.", genome_fileID[i],".bed"), 
+                          header = FALSE,
+                          skip = 1)
+  names(genic_types)[i] <- genome_type[i]
+  if (length(colnames(genic_types[[i]]))>3) {
+    genic_types[[i]] <- genic_types[[i]][,c(1:4,6)]
+    colnames(genic_types[[i]]) <- c("seqnames", "start", "end", "Gene", "strand")
+  }
+  if (length(colnames(genic_types[[i]])) < 4) {
+    colnames(genic_types[[i]]) <- c("seqnames", "start", "end")
+  }
+  genic_types[[i]]$Region <- genome_type[i]
+}
+```
+
+
 
 #Read in Bed files for human genome regions
 ```{r}
