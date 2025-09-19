@@ -1012,10 +1012,7 @@ for (i in 1:length(cell_type)) {
 )
   }
 }
-
-
 ```
-
 
 ##Create overlap Dataframes for all cell types for *uDMV* genes for R21 grant
 ```{r Old Code 10, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
@@ -1050,6 +1047,25 @@ overlap_df_NeuN_uDMV_genic <- data.frame(
   Region = as.data.frame(genic)[subjectHits(overlaps_NeuNuDMV_genic), ]
 )
 
+```
+
+
+```{r Overlap df for uDMV and gene regions}
+
+overlap_df_uDMV <- list()
+
+for (i in 1:length(cell_type)) {
+  overlap_df_uDMV[[i]] <- list()
+  names(overlap_df_uDMV)[i] <- cell_type[i]
+  for (j in 1:length(genome_type)) {
+    overlap_df_uDMV[[i]][[j]] <- list()
+    names(overlap_df_uDMV[[i]])[j] <- genome_type[j]
+    overlap_df_uDMV[[i]][[j]] <- data.frame(
+  DMV_Rod = as.data.frame(uDMV_Beds_gr[[i]])[queryHits(uDMV_overlaps_cellType_genomeRegion[[i]][[j]]), ],
+  Region = as.data.frame(genic_types[[j]])[subjectHits(uDMV_overlaps_cellType_genomeRegion[[i]][[j]]), ]
+)
+  }
+}
 ```
 
 #Output DMV gene lists for all Cell Types
