@@ -959,7 +959,7 @@ for (i in 1:length(cell_type)) {
 
 
 ##Create overlap Dataframes for all cell types for DMV genes
-```{r}
+```{r Old Code 9, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
 overlap_df_RodDMV_genic <- data.frame(
   DMV_Rod = as.data.frame(rods3m_gr)[queryHits(overlaps_RodDMV_genic), ],
   Region = as.data.frame(genic)[subjectHits(overlaps_RodDMV_genic), ]
@@ -996,8 +996,29 @@ overlap_df_Do1_Macula_genic <- data.frame(
 ```
 
 
+```{r Overlap df for DMV and gene regions}
+
+overlap_df_DMV <- list()
+
+for (i in 1:length(cell_type)) {
+  overlap_df_DMV[[i]] <- list()
+  names(overlap_df_DMV)[i] <- cell_type[i]
+  for (j in 1:length(genome_type)) {
+    overlap_df_DMV[[i]][[j]] <- list()
+    names(overlap_df_DMV[[i]])[j] <- genome_type[j]
+    overlap_df_DMV[[i]][[j]] <- data.frame(
+  DMV_Rod = as.data.frame(DMV_Beds_gr[[i]])[queryHits(overlaps_cellType_genomeRegion[[i]][[j]]), ],
+  Region = as.data.frame(genic_types[[j]])[subjectHits(overlaps_cellType_genomeRegion[[i]][[j]]), ]
+)
+  }
+}
+
+
+```
+
+
 ##Create overlap Dataframes for all cell types for *uDMV* genes for R21 grant
-```{r}
+```{r Old Code 10, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
 overlap_df_RoduDMV_genic <- data.frame(
   u_DMV_Rod = as.data.frame(rods3m_unique_gr)[queryHits(overlaps_RoduDMV_genic), ],
   Region = as.data.frame(genic)[subjectHits(overlaps_RoduDMV_genic), ]
