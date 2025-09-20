@@ -1074,20 +1074,27 @@ setwd("/home/groups/ximenac/01_DMV_Rods/notebooks/R_analysis/DMV_genes/")
 
 ##### Mouse #####
 
-write.csv(overlap_df_p3DMV_genic$Region.GeneID, file="P3_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_p3DMV_genic$Region.GeneID, file="P3_DMV_genes.csv", quote=FALSE, row.names = FALSE)
 
-write.csv(overlap_df_p21DMV_genic$Region.GeneID, file="P21_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_p21DMV_genic$Region.GeneID, file="P21_DMV_genes.csv", quote=FALSE, row.names = FALSE)
 
-write.csv(overlap_df_RodDMV_genic$Region.GeneID, file="Rod3m_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_RodDMV_genic$Region.GeneID, file="Rod3m_DMV_genes.csv", quote=FALSE, row.names = FALSE)
 
-write.csv(overlap_df_ConesDMV_genic$Region.GeneID, file="Cone2m_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_ConesDMV_genic$Region.GeneID, file="Cone2m_DMV_genes.csv", quote=FALSE, row.names = FALSE)
 
-write.csv(overlap_df_NeuN_DMV_genic$Region.GeneID, file="NeuN+_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_NeuN_DMV_genic$Region.GeneID, file="NeuN+_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+for (i in 1:length(cell_type)) {
+  for (j in 1:length(genome_type)) {
+    file_name <- paste0(cell_type[i], "_DMV_", genome_type[j], ".csv")
+    write.csv(overlap_df_DMV[[i]][[j]], file=file_name, quote=FALSE, row.names = FALSE)
+  }
+}
 
 #Mouse gene IDs were converted to Human gene IDs using https://www.syngoportal.org/convert
 
 ##### Human #####
-write.csv(overlap_df_Do1_Macula_genic$Region.GeneID, file="Donor1_Macula_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_Do1_Macula_genic$Region.GeneID, file="Donor1_Macula_DMV_genes.csv", quote=FALSE, row.names = FALSE)
 
 ```
 
@@ -1099,21 +1106,33 @@ setwd("/home/groups/ximenac/01_DMV_Rods/notebooks/R_analysis/uDMV_genes/")
 
 ##### Mouse #####
 
-write.csv(overlap_df_p3uDMV_genic$Region.GeneID, file="P3_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_p3uDMV_genic$Region.GeneID, file="P3_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
 
-write.csv(overlap_df_p21uDMV_genic$Region.GeneID, file="P21_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
-write.csv(overlap_df_p21_r21uDMV_genic$Region.GeneID, file="P21_R21_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_p21uDMV_genic$Region.GeneID, file="P21_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_p21_r21uDMV_genic$Region.GeneID, file="P21_R21_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
 
-write.csv(overlap_df_RoduDMV_genic$Region.GeneID, file="Rod3m_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_RoduDMV_genic$Region.GeneID, file="Rod3m_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
 
-write.csv(overlap_df_ConesuDMV_genic$Region.GeneID, file="Cone2m_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_ConesuDMV_genic$Region.GeneID, file="Cone2m_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
 
-write.csv(overlap_df_NeuN_uDMV_genic$Region.GeneID, file="NeuN_pos_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
+#write.csv(overlap_df_NeuN_uDMV_genic$Region.GeneID, file="NeuN_pos_uDMV_genes.csv", quote=FALSE, row.names = FALSE)
 
 #Mouse gene IDs were converted to Human gene IDs using https://www.syngoportal.org/convert
 
 ##### Human #####
 #write.csv(overlap_df_Do1_Macula_genic$Region.GeneID, file="DMV_genes/Donor1_Macula_DMV_genes.csv", quote=FALSE, row.names = FALSE)
+
+for (i in 1:length(cell_type)) {
+  for (j in 1:length(genome_type)) {
+    file_name <- paste0(cell_type[i], "_uDMV_", genome_type[j], ".csv")
+    write.csv(overlap_df_uDMV[[i]][[j]], file=file_name, quote=FALSE, row.names = FALSE)
+  }
+}
+
+```
+
+#Create Master DF for all cell-type DMVs by genome region types 
+```{r}
 
 ```
 
@@ -1150,81 +1169,9 @@ ms2hs(msgenes)
 ```
 
 
-# Function to extend gene coordinates with strand consideration
-```{r}
-
-extend_gene_coordinates <- function(gene_windows, upstream = 1000, downstream = 1000) {
-    extended_windows <- gene_windows
-    # Handle positive and negative strands differently
-    pos_strand <- strand(gene_windows)@unlistData@values == "+" | strand(gene_windows)@unlistData@values == "*"
-    
-    # For positive strand genes:
-    # - extend upstream (5') from start
-    # - extend downstream (3') from end
-    start_pos <- start(gene_windows)
-    end_pos <- end(gene_windows) 
-    
-    # Adjust coordinates based on strand
-    new_starts <- ifelse(pos_strand,
-                        (start_pos) - upstream,  # positive strand: extend 5' upstream
-                        (start_pos) - downstream) # negative strand: extend 3' downstream
-    
-    new_ends <- ifelse(pos_strand,
-                      (end_pos) + downstream,    # positive strand: extend 3' downstream
-                      (end_pos) + upstream)      # negative strand: extend 5' upstream
-    
-    x <- IRangesList(
-        start = new_starts,
-        end = new_ends
-        #width = abs(new_starts-new_ends)
-    )
-    ranges(extended_windows) <- as.list(x)
-    return(extended_windows)
-}
-
-```
 
 
-# Load gene info from UCSC & Add gene symbols
-```{r}
-# Load gene info from UCSC
-txdb <- TxDb.Mmusculus.UCSC.mm39.refGene
-genes <- genes(txdb,
-                 single.strand.genes.only=FALSE)
 
-# Add gene symbols
-symbols <- mapIds(org.Mm.eg.db,
-                 keys = mcols(genes)$gene_id,
-                 column = "SYMBOL",
-                 keytype = "ENTREZID",
-                 multiVals = "first")
-mcols(genes)$symbol <- symbols
-
-#genes@unlistData@elementMetadata <- genes@elementMetadata
-#genes_ext <- extend_gene_coordinates(genes)
-
-```
-
-### Standardize chromosome names for all DMV files & Extend gene coordinates by 1kb on each side for unique Rods
-```{r}
-
-######### Unique to Rods ###########
-# Standardize chromosome names
-dmv_regions_unique <- standardize_seqlevels(unique_rods_12)
-genes_std <- standardize_seqlevels(genes)
-
-# Extend gene coordinates by 1kb on each side
-#genes_extended_uDMV_rods@unlistData@ranges@start <- genes_extended_uDMV_rods@unlistData@ranges@start - 1000
-
-#genes_extended_uDMV_rods <- flank(genes_extended_uDMV_rods, width=1000, both=TRUE)
-genes_extended <- resize(genes_std, width=width(genes_std)+2000, fix="center")
-
-#genes_extended <- extend_gene_coordinates(genes_std)
-
-######### Rod DMV genes shared with others ##########
-dmv_regions_shared <- standardize_seqlevels(shared_rods_12)
-
-```
 
 
 ### Find overlaps between DMVs for all cell types and extended genes, and genomic regions
