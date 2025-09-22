@@ -135,12 +135,12 @@ Donor1_Mac <- read_dmv_file(paste0(base_path, "R_analysis/Hs_Retina/Donor1_Macul
 ```
 
 
-```{r Read i DMV Bed files into a list}
+```{r Read in DMV Bed files into a list}
 base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/"
 
 fileID <- c("HSC", "E8.5", "RPC_E11.5", "RPC_E12.5", "RPC_E14.5", "RPC_E17.5", "RPC_P3", "R_analysis/p21/P21", "R_analysis/Rods3m/Rod3m", "R_analysis/Cones2m/Cones2m", "R_analysis/FC_Neu/FC_1w", "R_analysis/FC_Neu/FC_2w", "R_analysis/FC_Neu/NeuN")
 
-cell_type <- c("HSC", "E8.5", "Ret_E11.5", "Ret_E12.5", "Ret_E14.5", "Ret_E17.5", "Ret_P3", "Ret_P21","Rod3m", "Cones2m","FC_1w", "FC_2w",  "NeuN_pos")
+cell_type <- c("HSC", "E8.5", "Ret E11.5", "Ret E12.5", "Ret E14.5", "Ret E17.5", "Ret P3", "Ret P21","Rod 3m", "Cone 2m","FC 1w", "FC 2w",  "NeuN+")
 
 DMV_Beds <- list()
 
@@ -995,7 +995,7 @@ overlap_df_Do1_Macula_genic <- data.frame(
 ```
 
 
-```{r Overlap df for DMV and gene regions}
+```{r Create Overlap df for DMV and gene regions}
 
 overlap_df_DMV <- list()
 
@@ -1130,8 +1130,9 @@ for (i in 1:length(cell_type)) {
 
 ```
 
-#Genic Intergenic Figure Create Master DF for all cell-type DMVs by genome region types genic intergenic
-```{r}
+#Genic Intergenic Figure 
+#Create Master DF for all cell-type DMVs by genome region types genic intergenic
+```{r For All DMVs - Generate DF for Genic Intergenic Figure, message=FALSE, warning=FALSE}
 
 #Stack DMV df by genic regions and intergenic regions for a given cell type
 
@@ -1149,12 +1150,85 @@ for (i in 1:length(cell_type)) {
                                              genic_intergenic[[i]]$DMV.start, "-",
                                              genic_intergenic[[i]]$DMV.end)
   genic_intergenic[[i]]$genic_intergenic <- ifelse(isUnique(genic_intergenic[[i]]$DMV_ID), genic_intergenic[[i]]$Region.Region, "Both")
+  genic_intergenic[[i]]$genic_intergenic <- ifelse(genic_intergenic[[i]]$genic_intergenic=="Known_genes", "Genic", genic_intergenic[[i]]$genic_intergenic)
   cut <- genic_intergenic[[i]][which(genic_intergenic[[i]]$genic_intergenic=="Both"),]
   genic_intergenic[[i]] <- rbind(genic_intergenic[[i]][which(isUnique(genic_intergenic[[i]]$DMV_ID)),],
                           cut[which(!duplicated(cut$DMV_ID)),])
 }
 
+
+```
+
+#Summarize and Modify the Genic Intergenic Dataframe
+```{r}
 #Stack DMVs of all cell types and create a new column indicating type of the DMV
+#Use dplyr gather
+
+library(tidyverse)
+combined_genic_intergenic_df <- map_df(genic_intergenic, ~ .x, .id = "id")
+combined_genic_intergenic_df$genic_intergenic <- as.factor(combined_genic_intergenic_df$genic_intergenic)
+
+combined_genic_intergenic_summary <- map_df(genic_intergenic, ~ {
+  .x %>%
+    count(genic_intergenic) %>%
+    mutate(genic_intergenic = as.character(genic_intergenic))
+}, .id="id")
+
+#Adjust the factor levels so the order in the figure is not alphabetical
+combined_genic_intergenic_summary <- combined_genic_intergenic_summary %>%
+  mutate(id=factor(id)) %>%
+  mutate(id=fct_relevel(id, c(
+                              "HSC",
+                              "E8.5", 
+                              "Ret E11.5","Ret E12.5","Ret E14.5", 
+                              "Ret E17.5", 
+                              "Ret P3",
+                              "Ret P21",
+                              "Rod 3m",
+                              "Cone 2m",
+                              "FC 1w","FC 2w",
+                              "NeuN+"
+                              ))) %>%
+  arrange(`id`)
+```
+
+
+#Figure Genic Intergenic 
+```{r Figure Genic Intergenic }
+setwd("/home/groups/ximenac/01_DMV_Rods/notebooks/")
+
+library(viridis)
+#library(hrbrthemes)
+
+plotColors <- (RColorBrewer::brewer.pal(12, "Paired"))
+
+color=c(rep(plotColors[1], each = 1),
+        rep(plotColors[2:3], each = 1),
+        rep(plotColors[3:7], each = 1),
+        rep(plotColors[8], each = 2), 
+        rep(plotColors[9], each = 2), 
+        rep(plotColors[10], each = 1),
+        rep(plotColors[1], each = 1)
+        )
+
+tiff("final_outs/Rsc05_021326_Genic_Intergenic_Barplot.tiff", units = "in", height = 4.25, width = 6.75, res = 300)
+ggplot(combined_genic_intergenic_summary, aes(fill=genic_intergenic, y=n)) + 
+  geom_bar(aes(x=id), stat="identity") +
+  ylab("Number of DMVs") +
+  scale_color_manual(values=color) +
+  scale_fill_viridis(discrete = T) +
+  geom_text(aes(x=id, label = n), color="white", hjust=-0.05,  size=4.5, family="Calibri") +
+  theme_minimal() + 
+  theme(axis.text.y = element_text(hjust=1, vjust=1.15, size=13, family="Calibri", color = color),
+        axis.text.x = element_text(size=13, family="Serif"),
+        axis.title.x = element_text(size= 14, family="Calibri"),
+        axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        legend.text= element_text(size=10, family="Calibri"),
+        legend.position = "top"
+       ) +
+  coord_flip()
+dev.off()
 ```
 
 
