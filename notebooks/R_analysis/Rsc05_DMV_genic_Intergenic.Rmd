@@ -517,7 +517,7 @@ NeuN_pos_unique <- read_dmv_file(paste0(base_path, "unique_DMVs/NeuN+_unique_DMV
 ```
 
 
-```{r}
+```{r Read in uDMV Bed files}
 base_path <- "/home/groups/ximenac/01_DMV_Rods/notebooks/unique_DMVs/"
 
 ufileID <- c("HSC", "E8.5", "RPC_E11.5", "RPC_E12.5", "Ret_E14.5", "Ret_E17.5", "P3", "P21", "Rod3m", "Cones2m", "FC_1w", "FC_2w", "NeuN+")
@@ -777,7 +777,7 @@ hs_pc <- makeGRangesFromDataFrame(hs_protein_coding)
 ```
 
 
-```{r conversation genome types bed list to gr}
+```{r convert genome types bed list to gr}
 mmu_genome_regions_gr <- list()
 for (i in 1:length(genome_type)) {
   mmu_genome_regions_gr[[i]] <- makeGRangesFromDataFrame(genic_types[[i]])
@@ -867,7 +867,7 @@ for (i in 1:length(cell_type)) {
     overlaps_cellType_genomeRegion[[i]][[j]] <- list()
     names(overlaps_cellType_genomeRegion[[i]])[j] <- genome_type[j]
     hits <- findOverlaps(DMV_Beds_gr[[i]], mmu_genome_regions_gr[[j]])
-    overlaps_cellType_genomeRegion[[i]][[j]] <- (hits)
+    overlaps_cellType_genomeRegion[[i]][[j]] <- hits
     if (length(hits) > 0) {
       #overlaps_cellType_genomeRegion[[i]][[j]] <- pintersect(DMV_Beds_gr[[i]], mmu_genome_regions_gr[[j]], hits)
     }
@@ -949,14 +949,13 @@ for (i in 1:length(cell_type)) {
     uDMV_overlaps_cellType_genomeRegion[[i]][[j]] <- list()
     names(uDMV_overlaps_cellType_genomeRegion[[i]])[j] <- genome_type[j]
     hits <- findOverlaps(uDMV_Beds_gr[[i]], mmu_genome_regions_gr[[j]])
-    uDMV_overlaps_cellType_genomeRegion[[i]][[j]] <- (hits)
+    uDMV_overlaps_cellType_genomeRegion[[i]][[j]] <- hits
     if (length(hits) > 0) {
       #uDMV_overlaps_cellType_genomeRegion[[i]][[j]] <- pintersect(DMV_Beds_gr[[i]], mmu_genome_regions_gr[[j]], hits)
     }
   }
 }
 ```
-
 
 ##Create overlap Dataframes for all cell types for DMV genes
 ```{r Old Code 9, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
@@ -1007,8 +1006,8 @@ for (i in 1:length(cell_type)) {
     overlap_df_DMV[[i]][[j]] <- list()
     names(overlap_df_DMV[[i]])[j] <- genome_type[j]
     overlap_df_DMV[[i]][[j]] <- data.frame(
-  DMV_Rod = as.data.frame(DMV_Beds_gr[[i]])[queryHits(overlaps_cellType_genomeRegion[[i]][[j]]), ],
-  Region = as.data.frame(genic_types[[j]])[subjectHits(overlaps_cellType_genomeRegion[[i]][[j]]), ]
+  DMV = as.data.frame(DMV_Beds_gr[[i]])[queryHits(overlaps_cellType_genomeRegion[[i]][[j]]), ],
+  Region = as.data.frame(mmu_genome_regions_gr[[j]])[subjectHits(overlaps_cellType_genomeRegion[[i]][[j]]), ]
 )
   }
 }
@@ -1061,8 +1060,8 @@ for (i in 1:length(cell_type)) {
     overlap_df_uDMV[[i]][[j]] <- list()
     names(overlap_df_uDMV[[i]])[j] <- genome_type[j]
     overlap_df_uDMV[[i]][[j]] <- data.frame(
-  DMV_Rod = as.data.frame(uDMV_Beds_gr[[i]])[queryHits(uDMV_overlaps_cellType_genomeRegion[[i]][[j]]), ],
-  Region = as.data.frame(genic_types[[j]])[subjectHits(uDMV_overlaps_cellType_genomeRegion[[i]][[j]]), ]
+  DMV = as.data.frame(uDMV_Beds_gr[[i]])[queryHits(uDMV_overlaps_cellType_genomeRegion[[i]][[j]]), ],
+  Region = as.data.frame(mmu_genome_regions_gr[[j]])[subjectHits(uDMV_overlaps_cellType_genomeRegion[[i]][[j]]), ]
 )
   }
 }
@@ -1131,9 +1130,31 @@ for (i in 1:length(cell_type)) {
 
 ```
 
-#Create Master DF for all cell-type DMVs by genome region types 
+#Genic Intergenic Figure Create Master DF for all cell-type DMVs by genome region types genic intergenic
 ```{r}
 
+#Stack DMV df by genic regions and intergenic regions for a given cell type
+
+genic_intergenic <- list()
+
+for (i in 1:length(cell_type)) {
+  genic_intergenic[[i]] <- rbind(unique(overlap_df_DMV[[i]][[1]][,c(1:6,14)]), unique(overlap_df_DMV[[i]][[3]][,c(1:6,12)]))
+  names(genic_intergenic)[i] <- cell_type[i]
+}
+
+#Create unique DMV ID
+#Annotate DMVs as genic only, intergenic only, or both
+for (i in 1:length(cell_type)) {
+  genic_intergenic[[i]]$DMV_ID <- paste0(genic_intergenic[[i]]$DMV.seqnames, ":", 
+                                             genic_intergenic[[i]]$DMV.start, "-",
+                                             genic_intergenic[[i]]$DMV.end)
+  genic_intergenic[[i]]$genic_intergenic <- ifelse(isUnique(genic_intergenic[[i]]$DMV_ID), genic_intergenic[[i]]$Region.Region, "Both")
+  cut <- genic_intergenic[[i]][which(genic_intergenic[[i]]$genic_intergenic=="Both"),]
+  genic_intergenic[[i]] <- rbind(genic_intergenic[[i]][which(isUnique(genic_intergenic[[i]]$DMV_ID)),],
+                          cut[which(!duplicated(cut$DMV_ID)),])
+}
+
+#Stack DMVs of all cell types and create a new column indicating type of the DMV
 ```
 
 
