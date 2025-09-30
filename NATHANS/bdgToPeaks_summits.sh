@@ -5,13 +5,16 @@
 #SBATCH -c 1
 #SBATCH --ntasks=6
 
+#building script to convert histone methylation chip seq files into peak summits or narrowpeaks from a bedGraphs file, using MACS3
+
 module load system
 module load devel
 module load biology
+module load ncurses/6.0
 module load bedtools
 module load samtools
 module load gcc
-module load python/3.12.1
+module load python/3.9.0
 
 module load py-cython/0.29.28_py39
 module load py-numpy/1.26.3_py312
@@ -27,3 +30,13 @@ module load py-scikit-learn/1.5.1_py312
 #cd MACS
 #pip install .
 
+export PATH="$PATH:/home/users/singhkak/MACS/"
+
+cd /scratch/groups/ximenac/NATHANS/
+for i in *bedGraph
+do
+    macs3 bdgpeakcall -i $i -c 2 -o "$i"_summits.bed
+done
+
+
+wait
