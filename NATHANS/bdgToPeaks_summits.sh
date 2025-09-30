@@ -33,10 +33,14 @@ module load py-scikit-learn/1.5.1_py312
 export PATH="$PATH:/home/users/singhkak/MACS/"
 
 cd /scratch/groups/ximenac/NATHANS/
+
+#Obtain the narrowpeaks file
+for i in *bedGraph; do macs3 bdgpeakcall -i $i -o "$i"_.narrowPeak -c 1.0 -l 200; done
+
+#Obtain peak summits files
 for i in *bedGraph
 do
     macs3 bdgpeakcall -i $i -c 2 -o "$i"_summits.bed
 done
-
 
 wait
