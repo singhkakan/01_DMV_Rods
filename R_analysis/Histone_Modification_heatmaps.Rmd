@@ -19,6 +19,38 @@ library(here)
 library(dplyr)
 ```
 
+#Import DMV files
+```{r}
+setwd("/home/groups/ximenac/XCD_BSSeq/")
+
+
+Rod_3mDMV <- import(here("R_analysis/Rods3m_DMVs_with_CpG.bed"))
+Rod_3m_uDMV <- import(here("R_analysis/Rod_3m_uDMV.bed"))
+
+#Rod_3m_uDMV <- read.table("R_analysis/rod_3m_bed_Annotated.csv", header=TRUE)
+#Rod_3m_uDMV <- Rod_3m_uDMV[which(Rod_3m_uDMV$Unique=="Unique"),]
+#write.table(Rod_3m_uDMV[,1:4], "R_analysis/Rod_3m_uDMV.bed", row.names=FALSE, col.names=FALSE, sep="\t", quote=FALSE)
+
+### Find midpoints of DMVs
+
+midpoint_Rod_3m_DMV <- mid(Rod_3mDMV)
+midpoint_Rod_3m_uDMV <- mid(Rod_3m_uDMV)
+
+Rod_3m_DMV_summits <- GRanges(seqnames = seqnames(Rod_3mDMV),
+                      ranges = IRanges(start = midpoint_Rod_3m_DMV,
+                                       width = 1),
+                      strand = strand(Rod_3mDMV),
+                      mcols(Rod_3mDMV)) # Keep original metadata
+
+Rod_3m_uDMV_summits <- GRanges(seqnames = seqnames(Rod_3m_uDMV),
+                      ranges = IRanges(start = midpoint_Rod_3m_uDMV,
+                                       width = 1),
+                      strand = strand(Rod_3m_uDMV),
+                      mcols(Rod_3m_uDMV)) # Keep original metadata
+
+```
+
+
 #Import Narrowpeaks for histone modification chip-seq
 ```{r}
 h3k9me3_peaks <- import(here("R_analysis/adult_H3K9me3_retina_mm39.narrowPeak")) #this is the actual narrowpeak file following liftover
