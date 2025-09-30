@@ -1,0 +1,85 @@
+---
+title: "Histone_Modification_Heatmaps"
+author: "Shruti Singh Kakan"
+date: "2025-09-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Load the libraries
+```{r}
+library(rtracklayer)
+library(GenomicRanges)
+library(ggplot2)
+library(here)
+library(dplyr)
+```
+
+#Import Narrowpeaks for histone modification chip-seq
+```{r}
+h3k9me3_peaks <- import(here("R_analysis/adult_H3K9me3_retina_mm39.narrowPeak")) #this is the actual narrowpeak file following liftover
+
+h3k4me1_peaks <- import(here("/scratch/groups/ximenac/NATHANS/H3K4me1_WT_rods_rep1_scaled10M.bedGraph_summits.bed"))
+h3k4me3_peaks <- import(here("/scratch/groups/ximenac/NATHANS/H3K4me3_WT_rods_rep1_scaled10M.bedGraph_summits.bed"))
+
+h3k27ac_peaks <- import(here("/scratch/groups/ximenac/NATHANS/H3K27ac_WT_rods_rep1_scaled10M.bedGraph_summits.bed"))
+```
+
+#Generate peak summits for the histone files
+```{r eval=FALSE, include=FALSE}
+setwd("/home/groups/ximenac/XCD_BSSeq/")
+
+histone_narrowPeaks <- list()
+
+
+h3k9me3 <- read.table("R_analysis/adult_H3K9me3_retina_mm39.narrowPeak")
+h3k9me3$summits_chr1 <- h3k9me3$V2 + h3k9me3$V10
+h3k9me3$summits_chr2 <- h3k9me3$V2 + h3k9me3$V10 + 1
+h3k9me3_summits <- h3k9me3[,c(1,11,12,4,5)]
+colnames(h3k9me3_summits) <- c("seqnames", "start", "end", "name", "score")
+write.table(h3k9me3_summits, "R_analysis/h3k9me3_summits", quote = FALSE, row.names=FALSE, col.names=FALSE, sep="\t")
+
+
+h3k4me1 <- read.table("/scratch/groups/ximenac/NATHANS/H3K4me1_WT_rods_rep1_scaled10M.bedGraph_summits.bed", skip=1)
+h3k4me1$summits_chr1 <- h3k4me1$V2 + h3k4me1$V10
+h3k4me1$summits_chr2 <- h3k4me1$V2 + h3k4me1$V10 + 1
+h3k4me1_summits <- h3k4me1[,c(1,11,12,4,5)]
+colnames(h3k4me1_summits) <- c("seqnames", "start", "end", "name", "score")
+write.table(h3k4me1_summits, "R_analysis/h3k9me3_summits", quote = FALSE, row.names=FALSE, col.names=FALSE, sep="\t")
+
+
+h3k4me3 <- read.table("/scratch/groups/ximenac/NATHANS/H3K4me3_WT_rods_rep2_scaled10M.bedGraph_summits.bed", skip=1)
+h3k4me3$summits_chr1 <- h3k4me3$V2 + h3k4me3$V10
+h3k4me3$summits_chr2 <- h3k4me3$V2 + h3k4me3$V10 + 1
+h3k4me3_summits <- h3k4me3[,c(1,11,12,4,5)]
+colnames(h3k4me3_summits) <- c("seqnames", "start", "end", "name", "score")
+write.table(h3k4me1_summits, "R_analysis/h3k4me3_summits", quote = FALSE, row.names=FALSE, col.names=FALSE, sep="\t")
+
+
+h3k27ac <- read.table("/scratch/groups/ximenac/NATHANS/H3K27ac_WT_rods_rep1_scaled10M.bedGraph_c5.bed", skip=1)
+h3k27ac$summits_chr1 <- h3k27ac$V2 + h3k27ac$V10
+h3k27ac$summits_chr2 <- h3k27ac$V2 + h3k27ac$V10 + 1
+h3k27ac_summits <- h3k27ac[,c(1,11,12,4,5)]
+colnames(h3k27ac_summits) <- c("seqnames", "start", "end", "name", "score")
+write.table(h3k4me1_summits, "R_analysis/h3k27ac_summits", quote = FALSE, row.names=FALSE, col.names=FALSE, sep="\t")
+
+rm(h3k9me3, h3k9me1, h3k4me3, h3k27ac, h3k9me3_summits, h3k9me1_summits, h3k4me3_summits, h3k27ac_summits)
+```
+
+
+#Import the bed file for the peak summits (for 1 single base pair)
+```{r}
+
+```
+
+#Import the bigwigs
+```{r}
+
+```
+
+
+#Define enhancers and Promoters based on the H3K4 mono and trimethylation
