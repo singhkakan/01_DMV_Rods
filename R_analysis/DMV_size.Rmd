@@ -1,0 +1,222 @@
+---
+title: "DMV_size"
+author: "Shruti Singh Kakan"
+date: "2025-04-15"
+output: html_document
+---
+
+
+#### Loading Libraries
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(dplyr)
+library(scales)
+library(geneviewer)
+library(RColorBrewer)
+library(forcats)
+library(tidyr)
+```
+
+#### Reading in bed files into data frames
+```{r}
+setwd("/home/groups/ximenac/XCD_BSSeq")
+Rod12 <- read_bed("R_analysis/Rods3m_DMVs_with_CpG.bed")
+Rod12$id <- "Rod 3m"
+#Rod10 <- read_bed("R_analysis/Rods2m_DMVs_with_CpG.bed")
+#Rod10$id <- "Rod 2m"
+Cones <- read_bed("R_analysis/Cones2m_DMVs_with_CpG.bed")
+Cones$id <- "Cone 2m"
+HSC <- read_bed("R_analysis/HSC_DMVs_with_CpG.bed")
+HSC$id <- "HSC"
+E8 <- read_bed("R_analysis/E8.5_DMVs_with_CpG.bed")
+E8$id <- "Embryo 8.5"
+E11 <- read_bed("R_analysis/RPC_E11.5_DMVs_with_CpG.bed")
+E11$id <- "RPC E11.5"
+E12 <- read_bed("R_analysis/RPC_E12.5_DMVs_with_CpG.bed")
+E12$id <- "RPC E12.5"
+E14 <- read_bed("R_analysis/RPC_E14.5_DMVs_with_CpG.bed")
+E14$id <- "Ret E14.5"
+E17 <- read_bed("R_analysis/RPC_E17.5_DMVs_with_CpG.bed")
+E17$id <- "Ret E17.5"
+P3 <- read_bed("R_analysis/RPC_P3_DMVs_with_CpG.bed")
+P3$id <- "Ret P3"
+Tet_WT <- read_bed("R_analysis/Tet_WT_1_DMVs_with_CpG.bed")
+Tet_WT$id <- "Tet WT"
+FC_1w <- read_bed("R_analysis/FC_1w_1_DMVs_with_CpG.bed")
+FC_1w$id <- "FC 1w"
+FC_2w <- read_bed("R_analysis/FC_2w_1_DMVs_with_CpG.bed")
+FC_2w$id <- "FC 2w"
+NeuN <- read_bed("R_analysis/NeuN_pos_DMVs_with_CpG.bed")
+NeuN$id <- "NeuN+"
+#Tet_KO <- read_bed("R_analysis/Tet_KO_1_DMVs_with_CpG.bed")
+#Tet_KO$id <- "Tet KO"
+
+
+
+```
+
+#### Create a combined data frame using Dplyr and assign factors
+```{r}
+#Combine dataframes using dplyr "bind_rows"
+Combined_data <- bind_rows(list(Tet_WT, Rod12, Cones, HSC, E8, E11, E12, E14, E17, P3, FC_1w, FC_2w, NeuN))
+
+#Ensure Chromosomes strat and end and number of CpGs are numeric
+str(Combined_data)
+
+#Assign factors
+Combined_data$chrom <- factor(Combined_data$chrom)
+Combined_data <- Combined_data %>%
+  mutate(id=factor(id)) %>%
+  mutate(id=fct_relevel(id, c("Embryo 8.5", 
+                              "RPC E11.5",
+                              "RPC E12.5",
+                              "Ret E14.5", 
+                              "Ret E17.5", 
+                              "Ret P3",
+                              "Tet WT",
+                              "Rod 3m",
+                              "Cone 2m",
+                              "FC 1w",
+                              "FC 2w",
+                              "NeuN+",
+                              "HSC"))) %>%
+  arrange(id)
+
+#Calculate length of DMVs
+Combined_data$Length <- Combined_data$chromEnd - Combined_data$chromStart
+```
+
+#### Create ggplot of DMV sizes
+
+```{r}
+setwd("/home/groups/ximenac/XCD_BSSeq")
+
+counts = Combined_data %>% 
+  dplyr::count(id)
+
+plotColors <- (RColorBrewer::brewer.pal(12, "Paired"))
+color=c(rep(plotColors[1:7], each = 1),
+        rep(plotColors[8], each = 2), 
+        rep(plotColors[9], each = 2), 
+        rep(plotColors[c(10,12)], each = 1))
+
+tiff("R_analysis/final_outs/DMV_Size_Distribution.tiff", units = "in", height = 6.5, width = 9.75, res = 300)
+ggplot(Combined_data, aes(x=id, y=(Length), color=id)) +
+   geom_jitter(alpha=0.1, width=0.15) +
+  geom_boxplot(outliers=FALSE, width=0.6) +
+  #geom_violin() +
+  xlab("Cell Type") + ylab("DMV Size (bp)") +
+  #facet_wrap(~id, ncol=3, scales = "free_y") +
+  scale_fill_brewer(palette="Dark2") +
+  scale_color_manual(values=color) + ylim(500,99000) +
+  geom_text(data=counts,aes(y=76000,label=n), show.legend = FALSE, family="Serif", size=6.5) +
+  theme_minimal()  +
+  theme(axis.text.x = element_text(size=17, angle=30, hjust=1, family="Calibri"),
+        axis.text.y = element_text(size=16, family="Serif"),
+        axis.title.y = element_text(size= 22, family="Calibri"),
+        axis.title.x = element_blank())
+dev.off()
+```
+
+#### Boxplot of DMV size and number facetted by chromosomes
+
+#### a separate boxplot of number of DMVs by chromosomes may be more relevant.
+```{r}
+setwd("/home/groups/ximenac/XCD_BSSeq")
+colourCount = length(unique(Combined_data$chrom))
+getPalette = colorRampPalette(brewer.pal(22, "Dark2"))
+
+Data <- Combined_data[-which(Combined_data$chrom=="MT"),]
+counts = Data %>% 
+  group_by(chrom) %>%
+  dplyr::count(id)
+
+tiff("R_analysis/final_outs/DMV_Size_Distribution_vs_chrom.tiff", units = "in", height = 9, width = 20, res = 300)
+ggplot(Data, aes(x=id, y=Length)) +
+  geom_boxplot(outliers=FALSE,width=0.6) +
+  geom_jitter(aes(color=chrom),alpha=0.6, width=0.2, size=0.2) +
+  xlab("Cell Type") + ylab("DMV Size (bp)") + ylim(500, 79000) +
+  scale_fill_manual(values=getPalette(colourCount)) +
+  scale_color_manual(values=getPalette(colourCount)) +
+  facet_wrap(~chrom, ncol=7)+
+  geom_text(data=counts,aes(y=69000,label=n), show.legend = FALSE, family="Serif", size=3.5) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=30, hjust=1, vjust=0.5, size=9.5, family="Serif"),
+        axis.text.y = element_text(size=12.5, family="Serif"),
+        axis.title.y = element_text(size= 25, family="Calibri"),
+        axis.title.x = element_blank(),
+        legend.position = "none")
+dev.off()
+```
+
+
+```{r Chromosome X}
+plotColors <- (RColorBrewer::brewer.pal(12, "Paired"))
+color=c(rep(plotColors[1:7], each = 1),
+        rep(plotColors[8], each = 2), 
+        rep(plotColors[9], each = 2), 
+        rep(plotColors[c(10,12)], each = 1))
+
+setwd("/home/groups/ximenac/XCD_BSSeq")
+tiff("R_analysis/final_outs/DMV_Size_Distribution_vs_chromX.tiff", units = "in", height = 3.5, width = 7.75, res = 300)
+ggplot(Data[which(Data$chrom=="X"),], aes(x=id, y=Length)) +
+  geom_boxplot(outliers=FALSE,width=0.6) +
+  geom_jitter(aes(color=chrom),alpha=0.2, width=0.2, size=1.5) +
+  xlab("") + ylab("DMV Size chrX") + ylim(00, 40000) +
+  scale_fill_manual(values=getPalette(colourCount)) +
+  scale_color_manual(values=getPalette(colourCount)) +
+  #facet_wrap(~chrom, ncol=7)+
+  geom_text(data=counts[which(counts$chrom=="X"),],aes(y=39000,label=n), show.legend = FALSE, family="Serif", size=5) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=25, hjust=1, vjust=1.15, size=12, family="Serif", color = color),
+        axis.text.y = element_text(size=12, family="Serif"),
+        axis.title.y = element_text(size= 14, family="Calibri"),
+        axis.title.x = element_blank(),
+        legend.position = "none")
+dev.off()
+```
+
+
+```{r Chromosome 1}
+setwd("/home/groups/ximenac/XCD_BSSeq")
+tiff("R_analysis/final_outs/DMV_Size_Distribution_vs_chrom1.tiff", units = "in", height = 3.5, width = 7.75, res = 300)
+ggplot(Data[which(Data$chrom=="1"),], aes(x=id, y=Length)) +
+  geom_boxplot(outliers=FALSE,width=0.65) +
+  geom_jitter(aes(color=chrom),alpha=0.2, width=0.2, size=1.5) +
+  xlab("") + ylab("DMV Size (bp)") + ylim(500, 40000) +
+  scale_fill_manual(values=getPalette(colourCount)) +
+  scale_color_manual(values=getPalette(colourCount)) +
+  #facet_wrap(~chrom, ncol=7)+
+  geom_text(data=counts[which(counts$chrom=="1"),],aes(y=30000,label=n), show.legend = FALSE, family="Serif", size=5) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=24, hjust=1, vjust=1.15, size=13, family="Serif", color = color),
+        axis.text.y = element_text(size=12, family="Serif"),
+        axis.title.y = element_text(size= 16, family="Calibri"),
+        axis.title.x = element_blank(),
+        legend.position = "none")
+dev.off()
+```
+
+
+```{r}
+setwd("/home/groups/ximenac/XCD_BSSeq")
+tiff("R_analysis/final_outs/DMV_Size_Distribution_vs_chrom11.tiff", units = "in", height = 3.5, width = 7.75, res = 300)
+ggplot(Data[which(Data$chrom=="11"),], aes(x=id, y=Length)) +
+  geom_boxplot(outliers=FALSE,width=0.6) +
+  geom_jitter(aes(color=chrom),alpha=0.2, width=0.2, size=1.5) +
+  xlab("") + ylab("DMV Size chr11") + ylim(700, 40000) +
+  scale_fill_manual(values=getPalette(colourCount)) +
+  scale_color_manual(values=getPalette(colourCount)) +
+  #facet_wrap(~chrom, ncol=7)+
+  geom_text(data=counts[which(counts$chrom=="11"),],aes(y=39000,label=n), show.legend = FALSE, family="Serif", size=5) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=25, hjust=1, vjust=1.15, size=13, family="Calibri", color = color),
+        axis.text.y = element_text(size=12, family="Serif"),
+        axis.title.y = element_text(size= 14, family="Calibri"),
+        axis.title.x = element_blank(),
+        legend.position = "none")
+dev.off()
+```
+
