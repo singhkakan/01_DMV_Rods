@@ -17,28 +17,27 @@ Output="/scratch/groups/ximenac/PRJNA343691/ChipSeq_P21/bowtie2_aligned"
 #mkdir $Output
 
 #cd $GROUP_SCRATCH/NOVOGENE_2025/fastq_trimmed
-cd "/scratch/groups/ximenac/PRJNA343691/ChipSeq_P21/fastq_trimmed/"
-for j in *gz
-do    
-    out="$Output"
-    cd $out
-    outname="${j%%.*}"
-    bowtie2 -q -N 1 --very-sensitive -p 8 -x $index $fastq/"$j" -S "$outname".sam &
-    cd ..
-done
+#cd "/scratch/groups/ximenac/PRJNA343691/ChipSeq_P21/fastq_trimmed/"
+#for j in *gz
+#do    
+#    out="$Output"
+#    cd $out
+#    outname="${j%%.*}"
+#    bowtie2 -q -N 1 --very-sensitive -p 8 -x $index $fastq/"$j" -S "$outname".sam &
+#    cd ..
+#done
 
-wait
+#wait
 
+cd $Output
 for j in *sam
 do
     out="$Output"
-    cd $out
     outname="${j%%.*}" 
     samtools view -bS -o tmp.bam "$outname".sam #convert sam to bam
     samtools view -bSq 20 tmp.bam | samtools sort -@ 8 -o "$outname".bam #filter reads with mapq > 20
     samtools index -b "$outname".bam &
     rm tmp.bam
-    cd ..
 done
 
 #for i in SRR4252883*
