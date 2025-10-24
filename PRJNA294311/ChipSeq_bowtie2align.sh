@@ -24,7 +24,7 @@ do
     out="$Output"
     cd $out
     outname="${j%%.*}"
-    bowtie2 -q -N 1 --very-sensitive -p 8 -x $index $fastq/"$j" -S "$outname".sam &
+    bowtie2 -q -N 1 --very-sensitive -p 8 -x $index $fastq/"$j" -S "$outname".sam
     cd ..
 done
 wait
@@ -35,11 +35,10 @@ do
     out="$Output"
     cd $out
     outname="${j%%.*}" 
-    samtools view -bS -o tmp.bam "$outname".sam #convert sam to bam
-    samtools view -bq 20 tmp.bam | samtools sort -@ 8 -o "$outname".bam #filter reads with mapq > 20
-    samtools index -b "$outname".bam &
+    samtools view -bSq 20 -o tmp.bam "$j" #convert sam to bam
+    samtools sort -@ 8 tmp.bam > "$outname".bam #filter reads with mapq > 20
+    samtools index -b "$outname".bam
     rm tmp.bam
-    cd ..
 done
 wait
 
