@@ -1,0 +1,361 @@
+---
+title: "ChipSeq_QC"
+author: "Shruti Singh Kakan"
+date: "2025-10-13"
+output: html_document
+---
+
+```{r chunk1, setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+
+```
+
+
+```{r Loading Libraries, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(knitr)
+library(ChIPQC)
+
+register(SerialParam())
+```
+
+
+# Peak Calling with MACS3
+
+The following parameters were used
+
+#Calling Narrow peaks on forward strand
+for i in *.bam
+do
+    outname="${i%%_*}"
+    macs3 callpeak -f BAM \
+    -g 2.65e+09 \
+    -q 0.001 \
+    --call-summits \
+    --bdg \
+    -t $i \
+    -c SRR4252949.sam.bam SRR4252950.sam.bam \
+    -n "$outname"_narrowPeak \
+    --outdir $Output 2> $Output/log/"$outname"_narrowPeak-macs2.log
+    #Rscript "$outname"_narrowPeak-model.r
+done
+
+
+```{r Loading Samples, message=FALSE, warning=FALSE, paged.print=FALSE}
+## Load sample data
+#setwd("/home/groups/ximenac/XCD_BSSeq/PRJNA343691/")
+Samples <- read.table("/home/groups/ximenac/XCD_BSSeq/R_analysis/ChipSeqQC/ChipSeq_metadata.txt", sep=',', header=TRUE)
+#rownames(Samples) <- paste0(Samples$Tissue, ":",Samples$Factor, "-", Samples$Replicate)
+Samples = Samples[-c(16),] #It does not work if you include the actual control sample
+#View(Samples)
+```
+
+
+```{r Loading blacklist regions, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+# Download a list of problematic regions (aka blacklist) for the GRCm39/mm39 
+# mouse genome assembly. Defined by the Boyle-Lab/Blacklist 
+# software, High Signal and Low Mappability regions. 
+# See https://github.com/dozmorovlab/excluderanges for more information.
+
+setwd("/home/groups/ximenac/XCD_BSSeq/R_analysis/ChipSeqQC")
+suppressMessages(library(httr)) # https://CRAN.R-project.org/package=httr
+suppressMessages(library(GenomicRanges)) # https://bioconductor.org/packages/GenomicRanges/
+# bedbase_id
+#bedbase_id <- "edc716833d4b5ee75c34a0692fc353d5"
+# Construct output file name
+fileNameOut <- "mm39.excluderanges.bed"
+# API token for BED data
+#token2 <- paste0("http://bedbase.org/api/bed/", bedbase_id, "/file/bed")
+# Download file
+#GET(url = token2, write_disk(fileNameOut, overwrite = TRUE))
+# Read the data in
+mm39.excluderanges <- readr::read_tsv(fileNameOut, 
+                                     col_names = FALSE,
+                                     col_types = c("cdddcc"))
+# Assign column names depending on the number of columns
+all_columns <- c("chr", "start", "end", "score", "strand",
+                 "signalValue")
+colnames(mm39.excluderanges) <- all_columns[1:ncol(mm39.excluderanges)]
+# Convert to GRanges object
+mm39.excluderanges <- makeGRangesFromDataFrame(mm39.excluderanges, 
+                                              keep.extra.columns = TRUE)
+# Seqinfo for mm39 genome
+chrom_data <- GenomeInfoDb::getChromInfoFromUCSC(genome = "mm39", 
+                                                 assembled.molecules.only = TRUE)
+# Subset and match to chromosomes in the mm39.excluderanges object
+# Common chromosomes
+chromosomes_common <- intersect(chrom_data$chrom, seqlevels(mm39.excluderanges))
+# Subset mm39.excluderanges
+mm39.excluderanges <- keepSeqlevels(mm39.excluderanges, chromosomes_common, 
+                                    pruning.mode = "tidy")      
+# Subset chrom_data
+chrom_data <- chrom_data[chrom_data$chrom %in% chromosomes_common, ]
+# Match objects
+chrom_data <- chrom_data[match(seqlevels(mm39.excluderanges), chrom_data$chrom), ]
+# Assign seqinfo data
+seqlengths(mm39.excluderanges) <- chrom_data$size
+isCircular(mm39.excluderanges) <- ifelse((chrom_data$circular), TRUE, FALSE)
+genome(mm39.excluderanges)     <- "mm39"
+
+#mm39.excluderanges
+```
+
+#### Generating mm39 annotation for ChipQC
+```{r creating the annotation for chipQC, message=FALSE, warning=FALSE, paged.print=FALSE}
+## Create ChIPQC object
+
+library(IRanges)
+library(GenomicFeatures)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+library(TxDb.Mmusculus.UCSC.mm39.refGene)
+#whichregister(SerialParam())
+mm39 <- list()
+mm39[["version"]] <- "mm39"
+chrom <- list("tx_chrom"=c(paste0('chr',1:19), 'chrX', 'chrY', 'chrM'))
+mm39[["genes"]] <- genes(TxDb.Mmusculus.UCSC.mm39.refGene, filter=chrom)
+genic <- reduce(mm39[["genes"]], ignore.strand=T)
+
+mm39[["promoters"]] <- promoters(TxDb.Mmusculus.UCSC.mm39.refGene, upstream=2000, downstream=400, filter=chrom)
+mm39[["introns"]] <- intronicParts(TxDb.Mmusculus.UCSC.mm39.refGene)
+
+
+mm39[["cds"]] <- cds(TxDb.Mmusculus.UCSC.mm39.refGene, filter=chrom)
+
+mm39[["3UTR"]] <- threeUTRsByTranscript(TxDb.Mmusculus.UCSC.mm39.refGene)
+mm39[["3UTR"]] <- mm39[["3UTR"]]@unlistData
+
+
+intergenic <- gaps(genic)
+mm39[["intergenic"]] <- intergenic[strand(intergenic) == "*"]
+seqlevels(mm39.excluderanges) <- gsub('chr', '', seqlevels(mm39.excluderanges))
+mm39[["blacklist"]] <- mm39.excluderanges
+
+#swap the 'chr' out of the chromosome names
+for (i in 1:6) {
+  mm39[[(i+1)]] <- keepSeqlevels(mm39[[(i+1)]], chrom[[1]], pruning.mode="coarse")
+  seqlevels(mm39[[(i+1)]]) <- gsub('chr', '', seqlevels(mm39[[(i+1)]]))
+}
+
+```
+
+### Create the ChipQC object
+```{r ChipQC Object, message=FALSE, warning=FALSE, include=FALSE, paged.print=TRUE}
+
+
+#Each bam file must have a bam index
+chipObj <- ChIPQC(Samples, annotation=mm39, consensus=TRUE, blacklist = mm39[["blacklist"]])
+#chipObj
+
+#findOverlaps(mm39.excluderanges, mm39[["blacklist"]])
+```
+
+
+
+Using the QCmetrics() function we can examine the quality metrics calculated by ChIPQC.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(knitr)
+#library(kableExtra)
+
+QCmetrics(chipObj)
+```
+
+### RelCC 
+RelCC is a metric of ChIP-enrichment. It is calculated by comparing the maximal cross coverage peak (at the shift size corresponding to the fragment length) to the cross coverage at a shift size corresponding to the read length. This measure is quite high in our histone sample but low for the input, indicating that the quality of the data is decent.
+
+RelCC is low for #14 H3K9me3, and this will require further investigation. 
+
+### SSD 
+SSD is another metric of ChIP-enrichment. It is looking at the density of positions with different pileup values. The higher the value the more successful the ChIP was. 
+
+### RiP
+RiP stands for reads in peaks. This is again an indicator of good enrichment. ChIPs around 5% or higher usually indicate successful enrichment. Rip scores are good/acceptable for all samples except H3K4me1.
+
+
+## Plotting Reads in Peak
+```{r fig.align='center', fig.height=6.5, fig.width=9, message=FALSE, warning=FALSE, paged.print=FALSE}
+plotRap(chipObj, facetBy=c("Factor"))
+```
+The above boxplots shows us that there are a lot of peaks with very low number of reads. Thus, it may be prudent to remove the regions with low enrichment of reads. We can set a 
+
+
+## Plotting coverage heatmaps
+
+```{r fig.align='center', fig.height=6, fig.width=9, message=FALSE, warning=FALSE, paged.print=FALSE}
+plotCorHeatmap(chipObj, attributes = "Condition", lineBy = "Replicate")
+```
+Nearly all replicates cluster together, except for the two H3K27Ac replicates from the P21 (Aldiri's) data set. These will need to be evaluated further. These samples have fairly close read depths, but there is a two fold difference in the number of peaks called in one replicate.  
+
+H3K9me3 clusters with the replicates of H3K27me3.
+
+H3K4Me1, H3K27me3 and H3K27Ac cluster very close together in both the P21 and isolated Rods data set, whereas H3K4me3 from the two data sets cluster separately.
+
+
+## Principal component analysis
+
+```{r fig.align='center', fig.height=6, fig.width=9, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+col=RColorBrewer::brewer.pal(n=12, "Paired")
+plotPrincomp(chipObj, attributes = "Factor", label="Tissue", dotSize=0.7, labelSize=0.5, vColors=col, alpha=0.7, text(pos = 4))
+```
+
+Again, we see that replicates of H3K27Ac do not cluster together. Further, they cluster with two different groups. 
+
+H3K9-14Ac refers to the acetylation of lysine 9 and lysine 14 on histone H3. This is a type of epigenetic modification that is associated with active gene expression, as it is typically found at active promoters and enhancers. In animals, H3K4me2 is generally associated with actively transcribed genes. Replicate 2 (with higher peak count) cluster with this activator group of Histones. 
+
+H3K27me3 is placed by the polycomb repressive complex (PRC2) and is an epigenetic mark that typically represses gene transcription. While H3K4me1 is usually found at enhancers and promoters. The repressive mark H3K9me3 also clusters closely with H3K27me3. 
+Replicate 1 of H3K27Ac clusters with the two H3K27me3, H3K9me3 and H3K4me1. However, this may be due to the low quality of peak calls of these samples, as all of the have a RiP score of less than 10% or a low RellCC score.
+
+H3K36me3 can be found in both active and repressed regions of the genome and is typically associated with recruiting DNA repair proteins and clusters furthest away. 
+
+## Relative Enrichment of Genomic Intervals (REGI)
+
+```{r echo=FALSE, fig.height=16.5, fig.width=7, message=FALSE, warning=FALSE, paged.print=FALSE}
+plotRegi(chipObj, facetBy = c("Condition", "Tissue"))
+```
+
+## Distribution of signal within peaks
+
+The fraction of signal in peaks can also give us an understanding of theChIP’sefficiency. As we would expect, this count is significantly lower for the input than for the ChIP samples.
+
+```{r fig.align='center', fig.height=6, fig.width=8.5, message=FALSE, warning=FALSE, paged.print=FALSE}
+plotFrip(chipObj, facetBy="Factor") ##Using Sample as id variables
+```
+
+The peak calling for H3K4me1 can be further optimized.
+
+## Plotting Peak Profiles
+
+```{r}
+plotPeakProfile(chipObj, facetBy="Condition")
+```
+
+Each peak is centered on its summit (point of highest pileup after extending the reads to the calculated fragment length), and the pileup values at bases in a window upstream and downstream of the summits is computed and averaged for all peaks in the sample. Good ChIPs will show distinctive patterns of enrichment in these peaks, while associated controls will be relatively flat.
+
+
+```{r fig.height=6, fig.width=8.5}
+plotCoverageHist(chipObj, facetBy=c("Tissue"), colourBy = "Factor") + scale_color_brewer(palette="Paired") 
+```
+
+The controls/input should ideally be below all the test samples.
+
+
+```{r fig.height=11, fig.width=8.5}
+plotCoverageHist(chipObj, facetBy=c("Factor", "Tissue")) + ggsci::scale_color_jco()
+```
+
+The coverage histogram shows that there is a significant stretch of high signal pile-up (more than 40,000 bps at greater than 20 depth). This may indicate significant signal associated to binding events but could also be from signal seen within blacklisted regions. 
+
+## Plotting QC metrics - SSD
+
+```{r fig.height=12, fig.width=7.5, message=FALSE, warning=FALSE, paged.print=FALSE}
+plotSSD(chipObj)
+```
+
+To assess the contribution of artefact signal to global distribution of signal pile-up we measure SSD before and after exclusion of signal from known blacklisted regions. This explains some of the discrepancies we see in the H3K9me3 sample. SSD signal for H3K9me3 is greatly affected by blacklisted regions.
+
+## Plotting cross-coverage
+This plot shows the cross-coverage values over a range of shift sizes. Usually there is a smaller or bigger (in our case quite high) peak on these plots at the read length, this is why the area from 0to1,5*read Leng this excluded when identifying the fragment length.Usually ChIP peaks have a higher peak at fragment length(thatyoucan’tseefor inputs),as shifting the reads on both strands should increase coverage at peak sites.
+
+
+### Cross coverage plots for H3K27me3
+```{r fig.height=4, fig.width=6, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(gridExtra)
+par(mfrow=c(2,2))
+
+H3K27me3_1 <- QCsample(chipObj,1)
+H3K27me3_2 <- QCsample(chipObj,2)
+H3K27me3_3 <- QCsample(chipObj,19)
+H3K27me3_4 <- QCsample(chipObj,20)
+
+a <- plotCC(H3K27me3_1, colourBy = "Factor")
+b <- plotCC(H3K27me3_2, colourBy = "Factor")
+c <- plotCC(H3K27me3_3, colourBy = "Factor")
+d <- plotCC(H3K27me3_4, colourBy = "Factor")
+
+grid.arrange(a, b, c, d, ncol=2, nrow=2)
+grid.arrange (plotPeakProfile(H3K27me3_1), plotPeakProfile(H3K27me3_2), plotPeakProfile(H3K27me3_3), plotPeakProfile(H3K27me3_4), ncol=2)
+```
+
+
+### Cross coverage plots for H3K27Ac
+```{r}
+library(gridExtra)
+
+H3K27Ac_1 <- QCsample(chipObj,5)
+H3K27Ac_2 <- QCsample(chipObj,6)
+H3K27Ac_3 <- QCsample(chipObj,17)
+H3K27Ac_4 <- QCsample(chipObj,18)
+
+e <- plotCC(H3K27Ac_1, colourBy = "Factor")
+f <- plotCC(H3K27Ac_2, colourBy = "Factor")
+g <- plotCC(H3K27Ac_3, colourBy = "Factor")
+h <- plotCC(H3K27Ac_4, colourBy = "Factor")
+
+grid.arrange(e, f, g, h, ncol=2, nrow=2)
+grid.arrange(plotPeakProfile(H3K27Ac_1), plotPeakProfile(H3K27Ac_2), plotPeakProfile(H3K27Ac_3), plotPeakProfile(H3K27Ac_4), ncol=2)
+```
+
+
+### Cross coverage plots for H3K4me3
+```{r fig.height=4, fig.width=6, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+H3K4Me3_1 <- QCsample(chipObj,10)
+H3K4Me3_2 <- QCsample(chipObj,11)
+H3K4Me3_3 <- QCsample(chipObj,23)
+H3K4Me3_4 <- QCsample(chipObj,24)
+
+i <- plotCC(H3K4Me3_1, colourBy = "Factor")
+j <- plotCC(H3K4Me3_2, colourBy = "Factor")
+k <- plotCC(H3K4Me3_3, colourBy = "Factor")
+l <- plotCC(H3K4Me3_4, colourBy = "Factor")
+
+grid.arrange(i, j, k, l, ncol=2, nrow=2)
+grid.arrange(plotPeakProfile(H3K4Me3_1), plotPeakProfile(H3K4Me3_2), plotPeakProfile(H3K4Me3_3), plotPeakProfile(H3K4Me3_4), ncol=2)
+```
+
+
+### Cross coverage plots for H3K4Me1 and H3K9me3
+```{r fig.height=4, fig.width=6, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+H3K4Me1_1 <- QCsample(chipObj,7)
+H3K4Me1_2 <- QCsample(chipObj,21)
+H3K4Me1_3 <- QCsample(chipObj,22)
+H3K9Me3 <- QCsample(chipObj,14)
+
+m <- plotCC(H3K4Me1_1, colourBy = "Factor")
+n <- plotCC(H3K4Me1_2, colourBy = "Factor")
+o <- plotCC(H3K4Me1_3, colourBy = "Factor")
+p <- plotCC(H3K9Me3, colourBy = "Factor")
+
+grid.arrange(m, n, o, p, ncol=2, nrow=2)
+grid.arrange(plotPeakProfile(H3K4Me1_1), plotPeakProfile(H3K4Me1_2), plotPeakProfile(H3K4Me1_3), plotPeakProfile(H3K9Me3), ncol=2)
+
+```
+
+
+### Cross coverage plots for Input and H3K36me3
+```{r fig.height=4, fig.width=6, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+Input <- QCsample(chipObj,15)
+H3K36me3_1 <- QCsample(chipObj,3)
+H3K36me3_2 <- QCsample(chipObj,4)
+
+
+m <- plotCC(Input)
+n <- plotCC(H3K36me3_1, colourBy = "Factor")
+o <- plotCC(H3K36me3_2, colourBy = "Factor")
+
+grid.arrange(m, n, o, ncol=2, nrow=2)
+grid.arrange(plotPeakProfile(Input), plotPeakProfile(H3K36me3_1), plotPeakProfile(H3K36me3_2), ncol=3)
+
+```
+
+
+Each peak is centered on its summit (point of highest pileup after extending the reads to the calculated fragment length), and the pileup values at bases in a window upstream and downstream of the summits is computed and averaged for all peaks in the sample. Good ChIPs will show distinctive patterns of enrichment in these peaks, while associated controls will be relatively flat.
+
+```{r eval=FALSE, include=FALSE}
+## Create ChIPQC report
+ChIPQC::ChIPQCreport(chipObj, reportName="ChIP QC report: H3K27Me3 and H3K36me3", 
+             reportFolder="ChIPQCreport", 
+             facetBy="Factor", lineBy = "Replicate")
+```
+
