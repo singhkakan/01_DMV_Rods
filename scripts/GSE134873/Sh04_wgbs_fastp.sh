@@ -1,10 +1,10 @@
 #!/usr/bin/bash
-#SBATCH --job-name=FastP
-#SBATCH -p bigmem
+#SBATCH --job-name=Sh04_FastP
+#SBATCH -p normal
 #SBATCH --time=23:00:00
-#SBATCH --mem=256GB
-#SBATCH -c 2
-#SBATCH --ntasks=10
+#SBATCH --mem=128GB
+#SBATCH -c 3
+#SBATCH --ntasks=11
 
 #module purge
 module load devel
@@ -14,11 +14,9 @@ export PATH="$PATH:/home/users/singhkak/fastp"
 
 mkdir $GROUP_SCRATCH/01_DMV_Rods/GSE134873/wgbs/fastq_trimmed
 
-
-fastp_out_dir=$GROUP_SCRATCH/01_DMV_Rods/GSE134873/wgbs/fastq_trimmed
-fasta=$GROUP_HOME/01_DMV_Rods/scripts/NOVOGENE_2025/adapter.fa
-fastq_dir=$GROUP_SCRATCH/01_DMV_Rods/GSE134873/wgbs/fastq
-
+fastp_out_dir="$GROUP_SCRATCH/01_DMV_Rods/GSE134873/wgbs/fastq_trimmed"
+fasta="$GROUP_HOME/01_DMV_Rods/scripts/NOVOGENE_2025/adapter.fa"
+fastq_dir="$GROUP_SCRATCH/01_DMV_Rods/GSE134873/wgbs/fastq"
 
 # -w N: start N number of parallel threads
 # -l: Minimum length cut-off. For Chip-Seq, Encode recommends a minimum read length of 50
@@ -30,7 +28,7 @@ fastq_dir=$GROUP_SCRATCH/01_DMV_Rods/GSE134873/wgbs/fastq
 
 cd $fastq_dir
 filename=(*.gz)
-for j in 0 2 4 6 8 10
+for j in 12 14 16 18 20
 do
     id_1=${filename["$j"]}
     echo "$id_1"
@@ -38,8 +36,8 @@ do
     id_2=${filename[("$k")]}
     echo "$id_2"
     outname="${id_1%%_*}"
-    fastp -w 8 -c -f 10 -F 18 -t 8 -T 13 -l 28 --adapter_fasta="$fasta" -i $fastq_dir/"$id_1" -I $fastq_dir/"$id_2" -o $fastp_out_dir/"$outname"_1.fq.gz -O $fastp_out_dir/"$outname"_2.fq.gz -h $fastp_out_dir/"$outname".html
+    fastp -w 4 -c -f 10 -F 18 -t 8 -T 13 -l 28 --adapter_fasta="$fasta" -i $fastq_dir/"$id_1" -I $fastq_dir/"$id_2" -o $fastp_out_dir/"$outname"_1.fq.gz -O $fastp_out_dir/"$outname"_2.fq.gz -h $fastp_out_dir/"$outname".html &
 done
 
-
+wait
 
