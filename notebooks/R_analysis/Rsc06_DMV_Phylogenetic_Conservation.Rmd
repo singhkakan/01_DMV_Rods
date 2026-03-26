@@ -52,6 +52,27 @@ wget -q -O $OUTDIR/phyloP35way.bw \
 
 
 
+```{bash, engine.opts='-l'}
+module load system
+module load libpng/1.6.53
+module load biology
+module load ucsc-utils/v489
+
+module load bedtools
+
+REGIONS="/home/groups/ximenac/01_DMV_Rods/notebooks/All_DMVs/Combined_data_DMV_with_CpG"
+OUTDIR="/home/groups/ximenac/01_DMV_Rods/notebooks/All_DMVs/Phylo_Cons"
+
+# ── 2. Convert bigWig to bedGraph ────────────────────────────────────────────
+echo "Converting to bedGraph..."
+bigWigToBedGraph $OUTDIR/phastCons35way.bw $OUTDIR/phastCons35way.bedGraph
+bigWigToBedGraph $OUTDIR/phyloP35way.bw $OUTDIR/phyloP35way.bedGraph
+
+
+  print
+}' $OUTDIR/regions_sorted.bed > $OUTDIR/regions_sorted_chr.bed
+```
+
 
 ```{r}
 
