@@ -1,0 +1,59 @@
+---
+title: "DMV_Phylogenetic_Conservation"
+author: "Shruti Kakan"
+date: "2026-03-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(scales)
+library(geneviewer)
+library(RColorBrewer)
+library(forcats)
+library(tidyr)
+library(ggplot2)
+library(gtools)
+```
+
+
+### Phylogenetic conservation
+
+#Code to download phastcons 35 way and phylocons 35way bigwig files
+
+```{bash, engine.opts='-l'}
+module load system
+module load libpng/1.6.53
+module load biology
+module load ucsc-utils/v489
+
+module load bedtools
+
+REGIONS="/home/groups/ximenac/01_DMV_Rods/notebooks/All_DMVs/Combined_data_DMV_with_CpG"
+OUTDIR="/home/groups/ximenac/01_DMV_Rods/notebooks/All_DMVs/Phylo_Cons"
+mkdir -p $OUTDIR
+
+# ── 1. Download phastCons35way bigWig ────────────────────────────────────────
+echo "Downloading phastCons35way bigWig..."
+wget -q -O $OUTDIR/phastCons35way.bw \
+  "https://hgdownload.soe.ucsc.edu/goldenPath/mm39/phastCons35way/mm39.phastCons35way.bw"
+
+# ── Optional: also download phyloP35way ──────────────────────────────────────
+wget -q -O $OUTDIR/phyloP35way.bw \
+  "https://hgdownload.soe.ucsc.edu/goldenPath/mm39/phyloP35way/mm39.phyloP35way.bw"
+
+```
+
+
+
+
+```{r}
+
+```
+
