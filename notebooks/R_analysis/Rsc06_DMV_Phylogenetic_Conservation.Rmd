@@ -97,6 +97,56 @@ awk 'BEGIN{OFS="\t"} {
 }' $OUTDIR/regions_sorted.bed > $OUTDIR/regions_sorted_chr.bed
 ```
 
+#Computing conservation scores for dmv regions, this takes a long time (10 - 15 minutes)
+```{bash, engine.opts='-l'}
+module load system
+module load libpng/1.6.53
+module load biology
+module load ucsc-utils/v489
+
+module load bedtools
+
+REGIONS="/home/groups/ximenac/01_DMV_Rods/notebooks/All_DMVs/Combined_data_DMV_with_CpG"
+OUTDIR="/home/groups/ximenac/01_DMV_Rods/notebooks/All_DMVs/Phylo_Cons"
+
+# ── 4.a Extract minimal BED for bedtools intersection ─────────────────────────
+# bedtools map -a only needs chr, start, end
+cut -f1-3 $OUTDIR/regions_sorted_chr.bed > $OUTDIR/regions_minimal.bed
+
+# ── 4.b Intersect and compute per-region summary stats ────────────────────────
+echo "Computing conservation scores..."
+
+#The -null "." flag tells bedtools to write . instead of skipping the row entirely when no overlap is found
+
+# phastCons: mean, max, and fraction of bases covered
+bedtools map \
+  -a $OUTDIR/regions_minimal.bed \
+  -b $OUTDIR/phastCons35way.bedGraph \
+  -c 4 -o mean,max,count \
+  -null "." \
+  > $OUTDIR/phastCons_scores.bed
+
+# phyloP: mean and max (can be negative — accelerated evolution)
+bedtools map \
+  -a $OUTDIR/regions_minimal.bed \
+  -b $OUTDIR/phyloP35way.bedGraph \
+  -c 4 -o mean,max \
+  -null "." \
+  > $OUTDIR/phyloP_scores.bed
+
+
+# ── 4.c Paste scores back onto original columns ────────────────────────────────
+# phastCons: original 7 cols + mean, max, count
+paste $OUTDIR/regions_sorted_chr.bed \
+      <(cut -f4-6 $OUTDIR/phastCons_scores.bed) \
+      > $OUTDIR/regions_phastCons.bed
+
+# phyloP: original 7 cols + mean, max
+paste $OUTDIR/regions_sorted_chr.bed \
+      <(cut -f4-5 $OUTDIR/phyloP_scores.bed) \
+      > $OUTDIR/regions_phyloP.bed
+
+```
 
 ```{r}
 
