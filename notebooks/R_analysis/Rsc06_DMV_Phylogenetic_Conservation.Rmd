@@ -148,6 +148,43 @@ paste $OUTDIR/regions_sorted_chr.bed \
 
 ```
 
+#Add headers to the files
+```{bash, engine.opts='-l'}
+module load system
+module load libpng/1.6.53
+module load biology
+module load ucsc-utils/v489
+
+module load bedtools
+
+REGIONS="/home/groups/ximenac/01_DMV_Rods/notebooks/All_DMVs/Combined_data_DMV_with_CpG"
+OUTDIR="/home/groups/ximenac/01_DMV_Rods/notebooks/All_DMVs/Phylo_Cons"
+
+# ── 5. Add headers ────────────────────────────────────────────────────────────
+# For phastCons (expects 10 columns)
+awk 'BEGIN{OFS="\t"} NR==1{print; next} {
+  while (NF < 10) $(NF+1) = "."
+  print
+}' $OUTDIR/regions_phastCons.bed > $OUTDIR/regions_phastCons_padded.bed
+
+# For phyloP (expects 9 columns)
+awk 'BEGIN{OFS="\t"} NR==1{print; next} {
+  while (NF < 9) $(NF+1) = "."
+  print
+}' $OUTDIR/regions_phyloP.bed > $OUTDIR/regions_phyloP_padded.bed
+
+# Adjust col names to match your BED columns (chr, start, end + any extra)
+sed -i '1i chr\tstart\tend\tCpGs\tid\tDMV_type\tDMV_length\tphastCons_mean\tphastCons_max\tphastCons_count' \
+  $OUTDIR/regions_phastCons_padded.bed
+
+sed -i '1i chr\tstart\tend\tCpGs\tid\tDMV_type\tDMV_length\tphyloP_mean\tphyloP_max' \
+  $OUTDIR/regions_phyloP_padded.bed
+  
+
+echo "Done. Output in $OUTDIR"
+```
+
+
 ```{r}
 
 ```
