@@ -10,8 +10,8 @@ transcription start sites (TSS) lie within a given distance of each other
 Usage:
     python3 copromoter_from_gtf.py annotation.gtf [--distance 400] [--output pairs.bed]
 
-Output (tab-separated, one row per qualifying transcript pair):
-    chrom  start(TSS1)  end(TSS2)  strand(gene1)  geneID(gene1)  transcriptID(gene1)  geneID(gene2)  transcriptID(gene2)
+Output (tab-separated, one row per unique co-promoter gene pair):
+    chrom  start(TSS1)  end(TSS2)  strand(gene1)  geneID(gene1)  transcriptID(gene1)  geneID(gene2)  transcriptID(gene2)  copromoterID
 
 Notes:
     * Only transcripts carrying the GTF attribute tag "basic" are considered
@@ -19,9 +19,11 @@ Notes:
       do not use this tag (e.g., RefSeq) will yield zero rows unless you pass
       --no-basic-filter.
     * Every transcript of every gene is compared against every transcript of
-      every gene on the opposite strand (not just gene-level TSS), so a gene
-      pair can appear more than once if more than one of their transcript
-      combinations falls within the distance cutoff.
+      every gene on the opposite strand (not just gene-level TSS). A given
+      gene pair can therefore have more than one qualifying transcript
+      combination; these are collapsed to a single output row per unique
+      (gene1, gene2) pair, keeping the transcript combination with the
+      smallest TSS-to-TSS distance as the representative row.
     * "gene1" is defined as whichever transcript has the smaller (more
       upstream) TSS coordinate, so start <= end always and the file is a
       valid BED. gene2 is, by construction, on the opposite strand from
@@ -29,12 +31,15 @@ Notes:
     * GTF coordinates are 1-based, closed. TSS is converted to a 0-based BED
       coordinate (subtract 1) so downstream BED tools interpret positions
       correctly.
+    * Each row is given a copromoterID of the form copromoterX_Y, where X is
+      the chromosome (its "chr" prefix stripped, if present) and Y is a
+      1-based running count of co-promoters on that chromosome, ordered by
+      genomic position (e.g., copromoter1_1, copromoter1_2, copromoter2_1).
 """
 
 import sys
 import argparse
 from bisect import bisect_left, bisect_right
-
 
 def parse_attributes(attr_field):
     """Parse a GTF attribute field into a dict of key -> list of values.
@@ -57,10 +62,8 @@ def parse_attributes(attr_field):
         attrs.setdefault(key, []).append(value)
     return attrs
 
-
 def parse_gtf(file_path, require_basic=True):
     """Read a GTF file and return a dict: chrom -> {'+': [...], '-': [...]}
-
     Each entry in the per-strand lists is a tuple:
         (tss, gene_id, transcript_id)
     where tss is the 0-based BED coordinate of that transcript's TSS.
@@ -90,10 +93,8 @@ def parse_gtf(file_path, require_basic=True):
                 if require_basic and 'basic' not in attrs.get('tag', []):
                     continue
                 n_basic += 1
-
                 gene_id = attrs.get('gene_id', ['NA'])[0]
                 transcript_id = attrs.get('transcript_id', ['NA'])[0]
-
                 start = int(start)
                 end = int(end)
 
@@ -114,7 +115,6 @@ def parse_gtf(file_path, require_basic=True):
     except Exception as e:
         print(f"An error occurred while reading '{file_path}': {e}", file=sys.stderr)
         sys.exit(1)
-
     if require_basic and n_seen and n_basic == 0:
         print(
             "Warning: no transcripts with tag \"basic\" were found. "
@@ -122,13 +122,10 @@ def parse_gtf(file_path, require_basic=True):
             "re-run with --no-basic-filter if that is expected.",
             file=sys.stderr,
         )
-
     return transcripts
-
 
 def find_copromoter_pairs(transcripts, max_distance=400):
     """Yield co-promoter transcript pair records.
-
     For each chromosome, '+' strand transcript TSSs are compared against
     '-' strand transcript TSSs within max_distance bp, using sorted lists and
     binary search (bisect) to define the comparison window. This scales to
@@ -141,7 +138,6 @@ def find_copromoter_pairs(transcripts, max_distance=400):
         minus_list = sorted(strands['-'], key=lambda x: x[0])
         if not plus_list or not minus_list:
             continue
-
         minus_positions = [t[0] for t in minus_list]
 
         for tss_plus, gene_plus, tx_plus in plus_list:
@@ -151,7 +147,6 @@ def find_copromoter_pairs(transcripts, max_distance=400):
                 distance = abs(tss_plus - tss_minus)
                 if distance > max_distance:
                     continue  # safety check; window should already guarantee this
-
                 if tss_plus <= tss_minus:
                     start, end = tss_plus, tss_minus
                     gene1, tx1, strand1 = gene_plus, tx_plus, '+'
@@ -160,9 +155,45 @@ def find_copromoter_pairs(transcripts, max_distance=400):
                     start, end = tss_minus, tss_plus
                     gene1, tx1, strand1 = gene_minus, tx_minus, '-'
                     gene2, tx2 = gene_plus, tx_plus
-
                 yield (chrom, start, end, strand1, gene1, tx1, gene2, tx2)
 
+def dedupe_by_gene_pair(pairs):
+    """Collapse transcript-level pair rows to one row per unique gene pair.
+    A single (gene1, gene2) pair can have several qualifying transcript
+    combinations. This keeps only one representative row per unique gene
+    pair per chromosome, choosing the transcript combination with the
+    smallest TSS-to-TSS distance (ties broken by transcript ID for
+    determinism). Gene order (which gene is "gene1") can vary across a
+    gene's transcripts, so the pair is keyed on an unordered set of the two
+    gene IDs.
+    """
+    best = {}
+    for row in pairs:
+        chrom, start, end, strand1, gene1, tx1, gene2, tx2 = row
+        key = (chrom, frozenset((gene1, gene2)))
+        distance = end - start
+        tie_breaker = (distance, tx1, tx2)
+        if key not in best or tie_breaker < best[key][0]:
+            best[key] = (tie_breaker, row)
+    return [row for _, row in best.values()]
+
+def assign_copromoter_ids(rows):
+    """Sort rows by chromosome and position and append a copromoterID column.
+
+    IDs follow the pattern copromoterX_Y, where X is the chromosome name
+    with any leading "chr" stripped, and Y is a 1-based running count of
+    co-promoters on that chromosome in genomic order.
+    """
+    rows = sorted(rows, key=lambda r: (r[0], r[1]))
+    counts = {}
+    labeled = []
+    for row in rows:
+        chrom = row[0]
+        chrom_label = chrom[3:] if chrom.lower().startswith('chr') else chrom
+        counts[chrom] = counts.get(chrom, 0) + 1
+        copromoter_id = f"copromoter{chrom_label}_{counts[chrom]}"
+        labeled.append(row + (copromoter_id,))
+    return labeled
 
 def main():
     parser = argparse.ArgumentParser(
@@ -178,18 +209,24 @@ def main():
     transcripts = parse_gtf(args.gtf_file, require_basic=not args.no_basic_filter)
 
     pairs = list(find_copromoter_pairs(transcripts, max_distance=args.distance))
-    pairs.sort(key=lambda row: (row[0], row[1]))
+    n_transcript_pairs = len(pairs)
+
+    unique_pairs = dedupe_by_gene_pair(pairs)
+    labeled_pairs = assign_copromoter_ids(unique_pairs)
 
     out = open(args.output, 'w') if args.output else sys.stdout
     try:
-        for row in pairs:
+        for row in labeled_pairs:
             out.write('\t'.join(str(x) for x in row) + '\n')
     finally:
         if args.output:
             out.close()
-
-    print(f"Found {len(pairs)} co-promoter transcript pairs within {args.distance} bp.", file=sys.stderr)
-
+    print(
+        f"Found {n_transcript_pairs} qualifying transcript pairs, "
+        f"collapsed to {len(labeled_pairs)} unique co-promoter gene pairs "
+        f"within {args.distance} bp.",
+        file=sys.stderr,
+    )
 
 if __name__ == "__main__":
     main()
